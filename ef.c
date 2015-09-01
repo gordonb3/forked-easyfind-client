@@ -107,6 +107,11 @@ void read_state() {
     }
 }
 
+/* Write state file */
+void write_state() {
+
+}
+
 /* Read MAC address from sysfs */
 void read_mac() {
     FILE* ad_file = fopen(WAN_MAC_FILE, "r");
@@ -132,11 +137,22 @@ int ef(int argc, char** argv) {
         usage();
         exit(0);
     } else if ( strcmp(argv[1], "-d") == 0 ) {
-        printf("Unregistering easyfind ...\n");
+        printf("Unregistering easyfind ... ");
+        fflush(stdout);
         struct ef_return* ret;
         ef_init();
         ret = ef_unregister(mac, key);
+        if (ret->res != 0) {
+            printf("KO\n");
+            fprintf(stderr, "ERROR: %s\n", (ret->res == 1) ? ret->err_msg : ret->curl_err_msg);
+        } else {
+            printf("OK\n");
+            // TODO remove state file
+        }
 
+        if (ret->res == 1) {
+            free(ret->err_msg);
+        }
         free(ret);
         ef_cleanup();
     } else {
@@ -161,11 +177,24 @@ int ef(int argc, char** argv) {
         }
         name = argv[1];
         if ( last_name == NULL ) {
-            printf("Registering new record '%s'...\n", name);
+            printf("Registering new record '%s'... ", name);
+            fflush(stdout);
             struct ef_return* ret;
             ef_init();
             ret = ef_register_new(name, mac, key);
+            if (ret->res != 0) {
+                printf("KO\n");
+                fprintf(stderr, "ERROR: %s\n", (ret->res == 1) ? ret->err_msg : ret->curl_err_msg);
+            } else {
+                printf("OK (IP:%s)\n", ret->ip);
+                printf("Setting up state file ... ");
+                fflush(stdout);
+                // TODO create/update state file
 
+                free(ret->ip);
+            }
+            if (ret->res == 1)
+                free(ret->err_msg);
             free(ret);
             ef_cleanup();
         } else if (strcmp(last_name, name) != 0 ) {

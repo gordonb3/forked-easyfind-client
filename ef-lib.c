@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <malloc.h>
 #include <string.h>
 #include <curl/curl.h>
 #include <json-c/json.h>
@@ -74,15 +75,16 @@ char* get_ip() {
     if ( res == CURLE_OK ) {
         json_object* jip = json_tokener_parse(data.payload);
         free(data.payload);
-        char *res = NULL;
+        char *r_ip = NULL;
         json_object_object_foreach(jip, key, val) {
             if (strcmp(key, "ip_address") == 0) {
                 const char* ip = json_object_get_string(val);
-                res = malloc(strlen(ip)+1);
-                strcpy(res, ip);
+                r_ip = malloc(strlen(ip)+1);
+                strcpy(r_ip, ip);
             }
         }
-        return res;
+        json_object_put(jip);
+        return r_ip;
     } else {
         free(data.payload);
         return NULL;
@@ -105,16 +107,47 @@ struct curl_data_st* prep_query(const char* fqdn, const char* mac, const char* k
     return data;
 }
 
+void parse_response(struct curl_data_st* data, struct ef_return* ret) {
+    json_object* jun = json_tokener_parse(data->payload);
+    const char* r_msg;
+    const char* r_err;
+    const char* r_ip;
+
+    json_object_object_foreach(jun, key, val) {
+        if (strcmp(key, "error") == 0) {
+            r_err = json_object_get_string(val);
+        } else if (strcmp(key, "msg") == 0) {
+            r_msg = json_object_get_string(val);
+        } else if (strcmp(key, "record") == 0) {
+            json_object_object_foreach(val, key2, val2) {
+                if (strcmp(key2, "content") == 0)
+                    r_ip = json_object_get_string(val2);
+            }
+        }
+    }
+    if (strcmp(r_err, "true") == 0) {
+        ret->res = 1;
+        ret->err_msg = malloc(strlen(r_msg)+1);
+        strcpy(ret->err_msg, r_msg);
+    } else {
+        ret->res = 0;
+        ret->ip = malloc(strlen(r_ip));
+        strcpy(ret->ip, r_ip);
+    }
+    json_object_put(jun);
+}
+
 struct ef_return* ef_unregister(const char* mac, const char* key) {
     struct ef_return* ret = malloc(sizeof(struct ef_return));
+    ret->ip = NULL;
     struct curl_data_st* data = prep_query("", mac, key);
     res = curl_easy_perform(curl);
     if (res == CURLE_OK) {
-        printf("Data : %s\n", data->payload);
-        ret->res = 0;
+        printf("Data: %s\n", data->payload); 
+        parse_response(data, ret);
     } else {
-        ret->res = 1;
-        ret->err_msg = curl_easy_strerror(res);
+        ret->res = 2;
+        ret->curl_err_msg = curl_easy_strerror(res);
     }
 
     free(data->req);
@@ -125,16 +158,16 @@ struct ef_return* ef_unregister(const char* mac, const char* key) {
 
 struct ef_return* ef_register_new(const char* fqdn, const char* mac, const char* key) {
     struct ef_return* ret = malloc(sizeof(struct ef_return));
+    ret->ip = NULL;
     struct curl_data_st* data = prep_query(fqdn, mac, key);
     res = curl_easy_perform(curl);
     if (res == CURLE_OK) {
-        printf("Data : %s\n", data->payload);
-        ret->res = 0;
+        printf("Data: %s\n", data->payload); 
+        parse_response(data, ret);
     } else {
-        ret->res = 1;
-        ret->err_msg = curl_easy_strerror(res);
+        ret->res = 2;
+        ret->curl_err_msg = curl_easy_strerror(res);
     }
-
     free(data->req);
     free(data->payload);
     free(data);

@@ -4,7 +4,9 @@ void ef_cleanup();
 
 struct ef_return {
     int res;
-    const char* err_msg;
+    char* err_msg;
+    const char* curl_err_msg;
+    char* ip;
 };
 
 struct ef_return* ef_register_new(const char* fqdn, const char* mac, const char* key);
