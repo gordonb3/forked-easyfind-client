@@ -30,8 +30,6 @@
 
 char* key = NULL;
 char* mac = NULL;
-char* ip = NULL;
-char* name = NULL;
 char* last_name = NULL;
 char* last_ip = NULL;
 
@@ -95,11 +93,12 @@ void read_cmdline() {
 }
 
 /* Try to load last known state */
-void read_state() {
+void read_state(int r) {
     FILE* st_file = fopen(STATE_FILE, "r");
     char* res;
     if (st_file != NULL) {
-        printf("\nReading state file ... ");
+        if (r == 0)
+            printf("\nReading state file ... ");
         fflush(stdout);
         char buf[MAX_LINE_LEN];
         while (1) {
@@ -127,11 +126,12 @@ void read_state() {
                 free(last_name);
             if (last_ip != NULL)
                 free(last_ip);
-            printf(RED "KO" RESET "\n");
-        } else {
+            if (r == 0)
+                printf(RED "KO" RESET "\n");
+        } else if ( r == 0 ) {
             printf(GRN "OK" RESET "\n");
         }
-    } else {
+    } else if (r == 0) {
         printf("\n");
     }
 }
@@ -142,7 +142,7 @@ char* write_state() {
     if (st_file == NULL) {
         return strerror(errno);
     } else {
-        fprintf(st_file, "%s\n%s", last_name, last_ip);
+        fprintf(st_file, "%s\n%s\n", last_name, last_ip);
         fclose(st_file);
         return NULL;
     }
@@ -168,7 +168,6 @@ void usage() {
 
 /* Main non-daemonic function */
 int ef(int argc, char** argv) {
-
     if (argc != 2) {
         usage();
         exit(0);
@@ -176,6 +175,7 @@ int ef(int argc, char** argv) {
         fprintf(stderr, "easyfind daemon is running; stop it before running the `ef` command\n");
         exit(1);
     } else if ( strcmp(argv[1], "-d") == 0 ) {
+        read_state(0);
         printf("Unregistering easyfind ... ");
         fflush(stdout);
         struct ef_return* ret;
@@ -206,6 +206,7 @@ int ef(int argc, char** argv) {
         free(ret);
         ef_cleanup();
     } else {
+        read_state(0);
         const char* pcreError;
         int pcreErrorOffset;
         const char* fqdn_regex = "(?=^.{4,253}$)(^((?!-)[a-zA-Z0-9-]{1,63}(?<!-)\\.){2}[a-zA-Z]{2,63}$)";
@@ -225,16 +226,15 @@ int ef(int argc, char** argv) {
                 return 1;
             }
         }
-        name = argv[1];
-        if ( last_name == NULL || strcmp(last_name, name) != 0 ) {
+        if ( last_name == NULL || strcmp(last_name, argv[1]) != 0 ) {
             if (last_name == NULL)
-                printf("Registering new record '%s'... ", name);
+                printf("Registering new record '%s'... ", argv[1]);
             else
-                printf("Replacing record '%s' with '%s'... ", last_name, name);
+                printf("Replacing record '%s' with '%s'... ", last_name, argv[1]);
             fflush(stdout);
             struct ef_return* ret;
             ef_init();
-            ret = ef_register_new(name, mac, key);
+            ret = ef_register_new(argv[1], mac, key);
             if (ret->res != 0) {
                 printf(RED "KO" RESET "\n");
                 fprintf(stderr, RED "ERROR" RESET ": %s\n", (ret->res == 1) ? ret->err_msg : ret->curl_err_msg);
@@ -256,13 +256,15 @@ int ef(int argc, char** argv) {
                     printf(GRN "OK" RESET "\n");
                     printf("\nAll done ; you may now enable the easyfind client daemon efd\nto periodically verify and update your easyfind name.\n\n");
                 }
+                free(ret->name);
+                free(ret->ip);
             }
             if (ret->res == 1)
                 free(ret->err_msg);
             free(ret);
             ef_cleanup();
         } else {
-            printf("\nThis system has already registered record '%s';\nRun easyfind service to do update the record.\n\n", name);
+            printf("\nThis system has already registered record '%s';\nRun easyfind service to do update the record.\n\n", argv[1]);
         }
     }
 
@@ -270,6 +272,46 @@ int ef(int argc, char** argv) {
 }
 
 int running = 1;
+
+void check_and_update() {
+    char* ip = get_ip();
+    if (ip == NULL) {
+        syslog(LOG_ERR, "Unable to get external ip from easyfind !");
+        running = 0;
+        return;
+    } else if (strcmp(ip, last_ip) != 0) {
+        syslog(LOG_INFO, "new IP detected (%s); updating easyfind...", ip);
+        struct ef_return* ret = ef_update(mac, key);
+        if (ret->res != 0) {
+            syslog(LOG_ERR, "Error while trying to update easyfind: %s", (ret->res == 1) ? ret->err_msg : ret->curl_err_msg);
+            running = 0;
+        } else {
+            if (strcmp(last_name, ret->name) != 0) {
+                syslog(LOG_ERR, "Easyfind reported name '%s' whereas '%s' is configured ... cannot continue", ret->name, last_name);
+                free(ret->name);
+                free(ret->ip);
+                running = 0;
+            } else {
+                free(last_name);
+                free(last_ip);
+                last_name = ret->name;
+                last_ip = ret->ip;
+                char* res_w = write_state();
+                if (res_w != NULL) {
+                    syslog(LOG_ERR, "Unable to update state file: %s", res_w);
+                    running = 0;
+                } else {
+                    syslog(LOG_INFO, "Easyfind and state file successfully updated with new IP");
+                }
+            }
+        }
+
+        if (ret->res == 1)
+            free(ret->err_msg);
+        free(ret);
+    }
+    free(ip);
+}
 
 void handle_term(int signum) {
     syslog(LOG_INFO, "SIGTERM received, exiting daemon ...");
@@ -279,14 +321,16 @@ void handle_term(int signum) {
 /* Main daemonic function */
 int efd(int argc, char** argv) {
 
+    read_state(1);
+
     if (last_name == NULL || last_ip == NULL) {
-        fprintf(stderr, "Unable to read data from state file ; Configure with `ef` before running this daemon.\n\n");
+        fprintf(stderr, "Unable to read data from state file ; Configure with `ef` before running this daemon.\n");
         exit(1);
     }
 
     pid_t pid = fork();
     if (pid < 0) {
-        fprintf(stderr, "Unable to fork easyfind daemon: %s\n\n", strerror(errno));
+        fprintf(stderr, "Unable to fork easyfind daemon: %s\n", strerror(errno));
         exit(1);
     } else if (pid > 0) {
         exit(0);
@@ -337,17 +381,20 @@ int efd(int argc, char** argv) {
     signal(SIGHUP, SIG_IGN);
     signal(SIGTERM,handle_term);
     
+    ef_init();
     int r = 0;
     while(running) {
+        check_and_update();
+        r = UPDATE_INTERVAL;
         while(running && r > 0)
             r = sleep(r);
-        if (running) {
-            syslog(LOG_INFO, "Loop");
-            r = sleep(UPDATE_INTERVAL);
-        }
     }
 
+    free(last_name);
+    free(last_ip);
+    ef_cleanup();
     unlink(PID_FILE);
+    syslog(LOG_INFO, "Easyfind daemon stopped");
     closelog();
     return 0;
 }
@@ -356,7 +403,6 @@ int main(int argc, char** argv) {
     check_state_perms();
     read_cmdline();
     read_mac();
-    read_state();
     char* last_slash = strrchr(argv[0], (int)'/');
     const char* p_name = (last_slash == NULL) ? argv[0] : last_slash+1;
     if (strcmp(p_name, "efd") == 0) {

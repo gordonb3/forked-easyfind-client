@@ -96,8 +96,13 @@ struct curl_data_st* prep_query(const char* fqdn, const char* mac, const char* k
     curl_easy_setopt(curl, CURLOPT_URL, EF_URL);
     char* esc_key = curl_easy_escape(curl, key, 0);
     char* esc_mac = curl_easy_escape(curl, mac, 0);
-    data->req = malloc(29 + strlen(esc_key) + strlen(esc_mac) + strlen(fqdn));
-    sprintf(data->req, "mac0=%s&key=%s&newname=%s&oldname=", esc_mac, esc_key, fqdn);
+    if (fqdn != NULL) {
+        data->req = malloc(29 + strlen(esc_key) + strlen(esc_mac) + strlen(fqdn));
+        sprintf(data->req, "mac0=%s&key=%s&newname=%s&oldname=", esc_mac, esc_key, fqdn);
+    } else {
+        data->req = malloc(11 + strlen(esc_key) + strlen(esc_mac));
+        sprintf(data->req, "mac0=%s&key=%s", esc_mac, esc_key);
+    }
     curl_free(esc_key);
     curl_free(esc_mac);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data->req);
@@ -134,9 +139,9 @@ void parse_response(struct curl_data_st* data, struct ef_return* ret) {
         strcpy(ret->err_msg, r_msg);
     } else {
         ret->res = 0;
-        ret->ip = malloc(strlen(r_ip));
+        ret->ip = malloc(strlen(r_ip)+1);
         strcpy(ret->ip, r_ip);
-        ret->name = malloc(strlen(r_name));
+        ret->name = malloc(strlen(r_name)+1);
         strcpy(ret->name, r_name);
     }
     json_object_put(jun);
@@ -145,6 +150,7 @@ void parse_response(struct curl_data_st* data, struct ef_return* ret) {
 struct ef_return* ef_unregister(const char* mac, const char* key) {
     struct ef_return* ret = malloc(sizeof(struct ef_return));
     ret->ip = NULL;
+    ret->name = NULL;
     struct curl_data_st* data = prep_query("", mac, key);
     res = curl_easy_perform(curl);
     if (res == CURLE_OK) {
@@ -163,7 +169,26 @@ struct ef_return* ef_unregister(const char* mac, const char* key) {
 struct ef_return* ef_register_new(const char* fqdn, const char* mac, const char* key) {
     struct ef_return* ret = malloc(sizeof(struct ef_return));
     ret->ip = NULL;
+    ret->name = NULL;
     struct curl_data_st* data = prep_query(fqdn, mac, key);
+    res = curl_easy_perform(curl);
+    if (res == CURLE_OK) {
+        parse_response(data, ret);
+    } else {
+        ret->res = 2;
+        ret->curl_err_msg = curl_easy_strerror(res);
+    }
+    free(data->req);
+    free(data->payload);
+    free(data);
+    return ret;
+}
+
+struct ef_return* ef_update(const char* mac, const char* key) {
+    struct ef_return* ret = malloc(sizeof(struct ef_return));
+    ret->ip = NULL;
+    ret->name = NULL;
+    struct curl_data_st* data = prep_query(NULL, mac, key);
     res = curl_easy_perform(curl);
     if (res == CURLE_OK) {
         parse_response(data, ret);
