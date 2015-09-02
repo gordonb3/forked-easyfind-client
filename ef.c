@@ -9,16 +9,17 @@
 #include <errno.h>
 #include <regex.h>
 #include <pcre.h>
+#include <syslog.h>
+#include <signal.h>
 
 #include "ef-lib.h"
 
 #define STATE_DIR "/var/lib/easyfind"
 #define STATE_FILE "/var/lib/easyfind/state"
-#define PID_DIR "/var/run/easyfind"
 #define PID_FILE "/var/run/easyfind/efd.pid"
 #define WAN_IF "eth0"
 #define MAX_LINE_LEN 1024
-#define DEFAULT_IP 127.0.0.1
+#define UPDATE_INTERVAL 60
 
 #define WAN_MAC_FILE "/sys/class/net/" WAN_IF "/address"
 
@@ -98,7 +99,7 @@ void read_state() {
     FILE* st_file = fopen(STATE_FILE, "r");
     char* res;
     if (st_file != NULL) {
-        printf("Reading state file ... ");
+        printf("\nReading state file ... ");
         fflush(stdout);
         char buf[MAX_LINE_LEN];
         while (1) {
@@ -130,6 +131,8 @@ void read_state() {
         } else {
             printf(GRN "OK" RESET "\n");
         }
+    } else {
+        printf("\n");
     }
 }
 
@@ -173,7 +176,7 @@ int ef(int argc, char** argv) {
         fprintf(stderr, "easyfind daemon is running; stop it before running the `ef` command\n");
         exit(1);
     } else if ( strcmp(argv[1], "-d") == 0 ) {
-        printf("\nUnregistering easyfind ... ");
+        printf("Unregistering easyfind ... ");
         fflush(stdout);
         struct ef_return* ret;
         ef_init();
@@ -190,7 +193,10 @@ int ef(int argc, char** argv) {
                     fprintf(stderr, YEL "WARNING" RESET ": unable to remove state file (%s)\n",  strerror(errno));
                 } else {
                     printf(GRN "OK" RESET "\n");
+                    printf("\nEasyfind succesfully unconfigured.\n\n");
                 }
+            } else {
+                printf("\nEasyfind succesfully unconfigured.\n\n");
             }
         }
 
@@ -256,16 +262,93 @@ int ef(int argc, char** argv) {
             free(ret);
             ef_cleanup();
         } else {
-            printf("This system has already registered record '%s';\nRun easyfind service to do update the record.\n", name);
+            printf("\nThis system has already registered record '%s';\nRun easyfind service to do update the record.\n\n", name);
         }
     }
 
     return 0;
 }
 
+int running = 1;
+
+void handle_term(int signum) {
+    syslog(LOG_INFO, "SIGTERM received, exiting daemon ...");
+    running = 0;
+}
+
 /* Main daemonic function */
 int efd(int argc, char** argv) {
-    printf("efd\n");
+
+    if (last_name == NULL || last_ip == NULL) {
+        fprintf(stderr, "Unable to read data from state file ; Configure with `ef` before running this daemon.\n\n");
+        exit(1);
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        fprintf(stderr, "Unable to fork easyfind daemon: %s\n\n", strerror(errno));
+        exit(1);
+    } else if (pid > 0) {
+        exit(0);
+    }
+
+    openlog("efd", LOG_PID, LOG_DAEMON);
+    syslog(LOG_INFO, "Starting easyfind update daemon");
+
+    pid_t sid = setsid();
+    if (sid < 0) {
+        syslog(LOG_ERR, "Unable to create a new session for the daemon process: %s", strerror(errno));
+        closelog();
+        exit(1);
+    }
+
+    if (chdir("/") < 0) {
+        syslog(LOG_ERR, "Unable to change process directory: %s", strerror(errno));
+        closelog();
+        exit(1);
+    }
+
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
+
+    umask(027);
+
+    int pid_fd = open(PID_FILE, O_RDWR | O_CREAT | O_CLOEXEC, S_IRUSR | S_IWUSR);
+    if (pid_fd == -1) {
+        syslog(LOG_ERR, "Unable to create PID file: %s", strerror(errno));
+        closelog();
+        exit(1);
+    }
+
+    if (lockf(pid_fd, F_TLOCK, 0) == -1) {
+        syslog(LOG_ERR, "Unable to lock PID file (%s); the daemon is likely already running ...", strerror(errno));
+        closelog();
+        exit(1);
+    }
+
+    char pid_s[10];
+    sprintf(pid_s, "%d\n", getpid());
+    write(pid_fd, pid_s, strlen(pid_s));
+    signal(SIGCHLD,SIG_IGN);
+    signal(SIGTSTP,SIG_IGN); 
+    signal(SIGTTOU,SIG_IGN);
+    signal(SIGTTIN,SIG_IGN);
+    signal(SIGHUP, SIG_IGN);
+    signal(SIGTERM,handle_term);
+    
+    int r = 0;
+    while(running) {
+        while(running && r > 0)
+            r = sleep(r);
+        if (running) {
+            syslog(LOG_INFO, "Loop");
+            r = sleep(UPDATE_INTERVAL);
+        }
+    }
+
+    unlink(PID_FILE);
+    closelog();
     return 0;
 }
 
