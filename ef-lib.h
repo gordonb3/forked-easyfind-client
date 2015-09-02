@@ -7,6 +7,7 @@ struct ef_return {
     char* err_msg;
     const char* curl_err_msg;
     char* ip;
+    char* name;
 };
 
 struct ef_return* ef_register_new(const char* fqdn, const char* mac, const char* key);
