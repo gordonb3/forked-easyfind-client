@@ -1,0 +1,17 @@
+[Unit]
+Description=Easyfind client update service
+After=network.target
+ConditionPathExists=/var/lib/easyfind/state
+
+[Service]
+Type=forking
+PIDFile=/var/run/easyfind/efd.pid
+User=excito
+Group=excito
+PermissionsStartOnly=true
+ExecStartPre=/bin/mkdir -p /var/run/easyfind
+ExecStartPre=/bin/chown excito:excito /var/run/easyfind
+ExecStart=/usr/bin/efd
+
+[Install]
+WantedBy=multi-user.target
