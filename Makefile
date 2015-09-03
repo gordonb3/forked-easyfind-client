@@ -18,8 +18,11 @@ clean:
 	rm -f $(OBJ) ef
 
 install:
+	install -d -m 0755 $(DESTDIR)/usr/bin
 	install -m 0755 ef $(DESTDIR)/usr/bin
 	ln -sf ef $(DESTDIR)/usr/bin/efd
 
 uninstall:
-	rm -f /usr/bin/efd /usr/bin/ef
+	rm -f $(DESTDIR)/usr/bin/efd $(DESTDIR)/usr/bin/ef
+	rmdir --ignore-fail-on-non-empty -p $(DESTDIR)/usr/bin
+
