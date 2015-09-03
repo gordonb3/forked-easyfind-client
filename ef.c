@@ -1,5 +1,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <pwd.h>
+#include <grp.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +21,8 @@
 #define WAN_IF "eth0"
 #define MAX_LINE_LEN 1024
 #define UPDATE_INTERVAL 60
+#define USER "excito"
+#define GROUP "excito"
 
 #define WAN_MAC_FILE "/sys/class/net/" WAN_IF "/address"
 
@@ -34,12 +38,13 @@ char* last_ip = NULL;
 
 /* State file opening/creation attempt */
 void check_state_perms() {
+    const char* root_msg = "You should probably run as root (ef) or " USER " (efd)";
     if ( access(STATE_FILE, F_OK ) != -1 ) {
         if ( access(STATE_FILE, R_OK) == -1 ) {
-            fprintf(stderr, RED "ERROR" RESET ": State file '%s' is not readable: %s\n", STATE_FILE, strerror(errno));
+            fprintf(stderr, RED "ERROR" RESET ": State file '%s' is not readable: %s\n%s\n", STATE_FILE, strerror(errno), root_msg);
             exit(1);
         } else if ( access(STATE_FILE, W_OK) == -1 ) {
-            fprintf(stderr, RED "ERROR" RESET  ": State file '%s' is not writeable: %s\n", STATE_FILE, strerror(errno));
+            fprintf(stderr, RED "ERROR" RESET  ": State file '%s' is not writeable: %s\n%s\n", STATE_FILE, strerror(errno), root_msg);
             exit(1);
         }
     } else {
@@ -47,10 +52,10 @@ void check_state_perms() {
             fprintf(stderr, RED "ERROR" RESET ": State directory '%s' does not exist (%s).\n", STATE_DIR, strerror(errno));
             exit(1);
         } else if ( access(STATE_DIR, R_OK | X_OK) == -1 ) {
-            fprintf(stderr, RED "ERROR" RESET ": State directory '%s' is not readable: %s\n", STATE_DIR, strerror(errno));
+            fprintf(stderr, RED "ERROR" RESET ": State directory '%s' is not readable: %s\n%s\n", STATE_DIR, strerror(errno), root_msg);
             exit(1);
         } else if ( access(STATE_DIR, W_OK) == -1 ) {
-            fprintf(stderr, RED "ERROR" RESET ": State directory '%s' is not writeable: %s\n", STATE_DIR, strerror(errno));
+            fprintf(stderr, RED "ERROR" RESET ": State directory '%s' is not writeable: %s\n%s\n", STATE_DIR, strerror(errno), root_msg);
             exit(1);
         }
     }
@@ -135,6 +140,8 @@ void read_state(int r) {
     }
 }
 
+int state_file_ok = 1;
+
 /* Write state file */
 char* write_state() {
     FILE* st_file = fopen(STATE_FILE, "w");
@@ -143,6 +150,26 @@ char* write_state() {
     } else {
         fprintf(st_file, "%s\n%s\n", last_name, last_ip);
         fclose(st_file);
+        if (state_file_ok == 1) {
+            struct passwd *u_pwd = getpwnam(USER);
+            if ( u_pwd == NULL ) {
+                unlink(STATE_FILE);
+                return "Unable to get " USER " passwd information";
+            }
+            struct stat st_info;
+            stat(STATE_FILE, &st_info);
+            int chg_u = ( u_pwd->pw_uid != st_info.st_uid ) ? u_pwd->pw_uid : -1;
+            int chg_g = ( u_pwd->pw_gid != st_info.st_gid ) ? u_pwd->pw_gid : -1;
+            if (chg_u != -1 || chg_g != -1) {
+                int r = chown(STATE_FILE, chg_u, chg_g);
+                if ( r == -1 ) {
+                    unlink(STATE_FILE);
+                    return strerror(errno);
+                }
+            }
+
+            state_file_ok = 0;
+        }
         return NULL;
     }
 }
@@ -331,6 +358,8 @@ int efd(int argc, char** argv) {
         fprintf(stderr, "Unable to read data from state file ; Configure with `ef` before running this daemon.\n");
         exit(1);
     }
+
+    state_file_ok = 0;
 
     pid_t pid = fork();
     if (pid < 0) {
