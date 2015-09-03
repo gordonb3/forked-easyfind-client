@@ -8,7 +8,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <regex.h>
-#include <pcre.h>
 #include <syslog.h>
 #include <signal.h>
 
@@ -207,25 +206,30 @@ int ef(int argc, char** argv) {
         ef_cleanup();
     } else {
         read_state(0);
-        const char* pcreError;
-        int pcreErrorOffset;
-        const char* fqdn_regex = "(?=^.{4,253}$)(^((?!-)[a-zA-Z0-9-]{1,63}(?<!-)\\.){2}[a-zA-Z]{2,63}$)";
-        pcre* r = pcre_compile(fqdn_regex, 0, &pcreError, &pcreErrorOffset, NULL);
-        if (r == NULL) {
-            fprintf(stderr, RED "ERROR" RESET ": Unable to compile fqdn regex: %s\n", pcreError);
+        const char* fqdn_regex = "^([a-z0-9-]{1,63}\\.){2}[a-z]{2,63}$";
+        regex_t regex;
+        int r = regcomp(&regex, fqdn_regex, REG_EXTENDED | REG_ICASE | REG_NOSUB);
+        if (r != 0) {
+            size_t l = regerror(r, &regex, NULL, 0);
+            char* r_err = malloc(l);
+            regerror(r, &regex, r_err, l);
+            fprintf(stderr, RED "ERROR" RESET ": Unable to compile fqdn regex: %s\n", r_err);
+            free(r_err);
+            regfree(&regex);
             return 1;
         }
-        int ovector[12];
-        int res = pcre_exec(r, NULL, argv[1], strlen(argv[1]), 0, 0, ovector, 12);
-        if (res < 0) {
-            if (res == PCRE_ERROR_NOMATCH) {
-                fprintf(stderr,  RED "ERROR" RESET ": The requested domain %s in invalid\n", argv[1]);
+        r = regexec(&regex, argv[1], 0, NULL, 0);
+        regfree(&regex);
+        if (r != 0) {
+            if (r == REG_NOMATCH) {
+                fprintf(stderr,  RED "ERROR" RESET ": The requested domain %s in not valid\n", argv[1]);
                 return 1;
             } else {
                 fprintf(stderr,  RED "ERROR" RESET ": There was an error while trying to check domain regex.\n");
                 return 1;
             }
         }
+        
         if ( last_name == NULL || strcmp(last_name, argv[1]) != 0 ) {
             if (last_name == NULL)
                 printf("Registering new record '%s'... ", argv[1]);
