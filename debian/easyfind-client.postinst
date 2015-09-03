@@ -1,0 +1,39 @@
+#!/bin/sh
+# postinst script for easyfind-client
+
+set -e
+
+case "$1" in
+    configure)
+
+    if ! getent passwd excito > /dev/null 2>&1; then
+        adduser --system --home /usr/share/excito --no-create-home --quiet --group excito
+    elif ! getent group excito > /dev/null 2>&1; then
+        addgroup --system --quiet excito
+        gpasswd -a excito excito
+    else
+        echo "excito user already exists; doing nothing"
+    fi
+
+    if [ ! -d /var/lib/easyfind ]; then
+        [ -e /var/lib/easyfind ] && rm -f /var/lib/easyfind
+        install -d -m0755 -o excito -g excito /var/lib/easyfind
+    elif [ $(stat -c "%U:%G" /var/lib/easyfind) != "excito:excito" ] ; then
+        chown -R excito:excito /var/lib/easyfind 
+    else
+        echo "state directory /var/lib/easyfind already exists, doing nothing."
+    fi
+    ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+    ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

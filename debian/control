@@ -1,0 +1,14 @@
+Source: easyfind-client
+Section: net
+Priority: standard
+Maintainer: Charles Leclerc <leclerc.charles@gmail.com>
+Build-Depends: debhelper (>= 9), libcurl-ssl-dev, libjson-c-dev
+Standards-Version: 3.9.5
+Homepage: http://github.com/Excito/easyfind-client
+Vcs-Git: https://github.com/Excito/easyfind-client.git
+Vcs-Browser: http://github.com/Excito/easyfind-client
+
+Package: easyfind-client
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, excito-release
+Description: Excito easyfind client configuration utility and daemon
