@@ -114,10 +114,10 @@ struct curl_data_st* prep_query(const char* fqdn, const char* mac, const char* k
 
 void parse_response(struct curl_data_st* data, struct ef_return* ret) {
     json_object* jun = json_tokener_parse(data->payload);
-    const char* r_msg;
-    const char* r_err;
-    const char* r_ip;
-    const char* r_name;
+    const char* r_msg = NULL;
+    const char* r_err = NULL;
+    const char* r_ip = NULL;
+    const char* r_name = NULL;
 
     json_object_object_foreach(jun, key, val) {
         if (strcmp(key, "error") == 0) {
@@ -133,14 +133,18 @@ void parse_response(struct curl_data_st* data, struct ef_return* ret) {
             }
         }
     }
-    if (strcmp(r_err, "true") == 0) {
-        ret->res = 1;
+
+    ret->res = (strcmp(r_err, "true") == 0) ? 1 : 0;
+
+    if (r_msg != NULL) {
         ret->err_msg = malloc(strlen(r_msg)+1);
         strcpy(ret->err_msg, r_msg);
-    } else {
-        ret->res = 0;
+    }
+    if (r_ip != NULL) {
         ret->ip = malloc(strlen(r_ip)+1);
         strcpy(ret->ip, r_ip);
+    }
+    if (r_name != NULL) {
         ret->name = malloc(strlen(r_name)+1);
         strcpy(ret->name, r_name);
     }

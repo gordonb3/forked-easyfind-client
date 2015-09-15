@@ -226,7 +226,7 @@ int ef(int argc, char** argv) {
             }
         }
 
-        if (ret->res == 1) {
+        if (ret->err_msg != NULL) {
             free(ret->err_msg);
         }
         free(ret);
