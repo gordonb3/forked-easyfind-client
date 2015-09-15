@@ -9,8 +9,6 @@ PIDFile=/var/run/easyfind/efd.pid
 User=excito
 Group=excito
 PermissionsStartOnly=true
-ExecStartPre=/bin/mkdir -p /var/run/easyfind
-ExecStartPre=/bin/chown excito:excito /var/run/easyfind
 ExecStart=/usr/bin/efd
 
 [Install]
