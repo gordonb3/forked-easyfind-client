@@ -17,7 +17,7 @@ distclean: clean
 clean:
 	rm -f $(OBJ) ef
 
-install:
+install: all
 	install -d -m 0755 $(DESTDIR)/usr/bin
 	install -m 0755 ef $(DESTDIR)/usr/bin
 	ln -sf ef $(DESTDIR)/usr/bin/efd
