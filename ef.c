@@ -308,7 +308,6 @@ void check_and_update() {
     char* ip = get_ip();
     if (ip == NULL) {
         syslog(LOG_ERR, "Unable to get external ip from easyfind !");
-        running = 0;
         return;
     } else if (strcmp(ip, last_ip) != 0) {
         syslog(LOG_INFO, "new IP detected (%s); updating easyfind...", ip);
