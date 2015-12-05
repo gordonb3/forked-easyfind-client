@@ -21,8 +21,8 @@
 #define WAN_IF "eth0"
 #define MAX_LINE_LEN 1024
 #define UPDATE_INTERVAL 60
-#define USER "excito"
-#define GROUP "excito"
+#define USER "easyfind"
+#define GROUP "easyfind"
 
 #define WAN_MAC_FILE "/sys/class/net/" WAN_IF "/address"
 

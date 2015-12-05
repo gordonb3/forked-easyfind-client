@@ -6,8 +6,8 @@ ConditionPathExists=/var/lib/easyfind/state
 [Service]
 Type=forking
 PIDFile=/var/run/easyfind/efd.pid
-User=excito
-Group=excito
+User=easyfind
+Group=easyfind
 PermissionsStartOnly=true
 ExecStart=/usr/bin/efd
 

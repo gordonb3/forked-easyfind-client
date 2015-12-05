@@ -7,8 +7,8 @@ set -e
 
 case "$1" in
     remove)
-    deluser --quiet --system excito
-    delgroup --quiet --system --only-if-empty excito || true
+    deluser --quiet --system easyfind
+    delgroup --quiet --system --only-if-empty easyfind || true
     ;;
 
     purge)
