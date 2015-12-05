@@ -77,6 +77,7 @@ void read_cmdline() {
         exit(1);
     }
 
+    res[strlen(res)-1] = '\0';
     const char* delim = " ";
     char* token = strtok(res, delim);
     while (token != NULL) {
