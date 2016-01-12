@@ -87,14 +87,50 @@ void read_cmdline() {
         token = strtok(NULL, delim);
     }
 
-    if ( token == NULL ) {
-        fprintf(stderr, RED "ERROR" RESET ": Unable to read key from boot command line; are you running on a B2/B3 ?\n");
-        exit(1);
+    if ( token != NULL ) {
+        key = malloc(strlen(token)-3);
+        strcpy(key, token+4);
+        key[strlen(token)-4] = '\0';
     }
+}
 
-    key = malloc(strlen(token)-3);
-    strcpy(key, token+4);
-    key[strlen(token)-4] = '\0';
+/* Reads key value from u-boot environment in flash */
+void read_flash() {
+
+#if defined(__powerpc__) || defined(__ppc__) || defined(__PPC__)
+    // Bubba|2
+    char env[8192];
+    int fd = open("/dev/mtd0", O_RDONLY);
+    if (fd == -1)
+        return;
+    lseek(fd, 0x50000, SEEK_SET);
+    read(fd, env, 8192);
+    if ( env[4] == 0x0 ) {
+        lseek(fd, 0x60000, SEEK_SET);
+        read(fd, env, 8192);
+    }
+    char *pos = &env[5];
+#else
+    // B3
+    char env[65536];
+    int fd = open("/dev/mtd1", O_RDONLY);
+    if ( fd == -1 )
+        return;
+    read(fd, env, 65536);
+    char *pos = &env[4];
+#endif
+    close(fd);
+
+    int l = strlen(pos);
+    while ( l > 0 ) {
+        if ( strncmp(pos, "key=", 4) == 0) {
+            key = malloc(l - 3);
+            strcpy(key, pos + 4);
+            break;
+        }
+        pos += l+1;
+        l = strlen(pos);
+    }
 }
 
 /* Try to load last known state */
@@ -435,6 +471,12 @@ int efd(int argc, char** argv) {
 int main(int argc, char** argv) {
     check_state_perms();
     read_cmdline();
+    if ( key == NULL )
+        read_flash();
+    if (key == NULL) {
+        fprintf(stderr, RED "ERROR" RESET ": Unable to read key from either boot command line or flash; are you running on a B2/B3 ?\n");
+        exit(1);
+    }
     read_mac();
     char* last_slash = strrchr(argv[0], (int)'/');
     const char* p_name = (last_slash == NULL) ? argv[0] : last_slash+1;
