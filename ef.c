@@ -278,6 +278,25 @@ void usage() {
     printf("usage: ef [-d|<name>.<domain>]\n");
 }
 
+/* Test domain name for FQDN compliancy */
+int fqdn_test(const char *domain) {
+    const char* fqdn_regex = "^([a-z0-9-]{1,63}\\.){2}[a-z]{2,63}$";
+    regex_t regex;
+    int r = regcomp(&regex, fqdn_regex, REG_EXTENDED | REG_ICASE | REG_NOSUB);
+    if (r != 0) {
+        size_t l = regerror(r, &regex, NULL, 0);
+        char* r_err = (char*)malloc(l);
+        regerror(r, &regex, r_err, l);
+        fprintf(stderr, RED "ERROR" RESET ": Unable to compile fqdn regex: %s\n", r_err);
+        free(r_err);
+        regfree(&regex);
+        exit(1);
+    }
+    r = regexec(&regex, domain, 0, NULL, 0);
+    regfree(&regex);
+    return r;
+}
+
 /* Main non-daemonic function */
 int ef(int argc, char** argv) {
     if ( access(PID_FILE, F_OK) != -1 ) {
@@ -319,20 +338,7 @@ int ef(int argc, char** argv) {
         ef_cleanup();
     } else if (cmd_array.action == "setname") {
         read_state(0);
-        const char* fqdn_regex = "^([a-z0-9-]{1,63}\\.){2}[a-z]{2,63}$";
-        regex_t regex;
-        int r = regcomp(&regex, fqdn_regex, REG_EXTENDED | REG_ICASE | REG_NOSUB);
-        if (r != 0) {
-            size_t l = regerror(r, &regex, NULL, 0);
-            char* r_err = (char*)malloc(l);
-            regerror(r, &regex, r_err, l);
-            fprintf(stderr, RED "ERROR" RESET ": Unable to compile fqdn regex: %s\n", r_err);
-            free(r_err);
-            regfree(&regex);
-            return 1;
-        }
-        r = regexec(&regex, cmd_array.ef_name.c_str(), 0, NULL, 0);
-        regfree(&regex);
+        int r = fqdn_test(cmd_array.ef_name.c_str());
         if (r != 0) {
             if (r == REG_NOMATCH) {
                 fprintf(stderr,  RED "ERROR" RESET ": The requested domain %s is not valid\n", cmd_array.ef_name.c_str());
@@ -523,12 +529,67 @@ int efd(int argc, char** argv) {
     return 0;
 }
 
+/* Json displaying function */
+int ef_json() {
+    read_state(1);
+    if (last_name != NULL && strcmp(last_name, cmd_array.ef_name.c_str()) == 0 )  // manual refresh
+        cmd_array.action = "getname";
+    else if (cmd_array.action != "getname" && access(PID_FILE, F_OK) != -1)       // efd will stop itself after name is changed
+        fprintf(stderr, YEL "WARNING" RESET ": easyfind daemon will be stopped.\n");
+
+    if (last_name == NULL && cmd_array.action != "setname" && cmd_array.action != "getname") {
+        cout << "{\"error\":\"true\",\"msg\":\"Easyfind not enabled.\"" << endl;
+    } else if (cmd_array.action == "getname" && last_name != NULL && last_ip != NULL) {
+        cout << "{\"error\":\"false\",\"ip\":\"" << last_ip << "\",\"name\":\"" << last_name << "\"}" << endl;
+    } else {
+        struct ef_return* ret;
+        if (cmd_array.ca_file.empty())
+            ef_init();
+        else
+            ef_init(cmd_array.ca_file.c_str());
+
+        if (cmd_array.action == "disable") {
+            ret = ef_unregister(mac, key, true);
+            if (ret->res == 0) {
+                if (unlink(cmd_array.st_file.c_str()) == -1)
+                    fprintf(stderr, YEL "WARNING" RESET ": unable to remove state file (%s)\n",  strerror(errno));
+            }
+        } else if (cmd_array.action == "setname") {
+            ret = ef_register_new(cmd_array.ef_name.c_str(), mac, key, true);
+        } else {
+            ret = ef_update(mac, key, true);
+            if (ret->res == 0) {
+                if (last_name != NULL) free(last_name);
+                if (last_ip != NULL) free(last_ip);
+                last_name = ret->name;
+                last_ip = ret->ip;
+                strcpy(enabled,"yes");
+                char* res_w = write_state();
+                if (res_w != NULL) {
+                    fprintf(stderr, RED "ERROR" RESET "Unable to update state file: %s", res_w);
+                }
+            }
+        }
+        if (ret->res != 0) {
+            cout << "{\"error\":\"true\",\"msg\":\""<< ret->curl_err_msg << ".\"" << endl;
+        }
+
+        if (ret->err_msg != NULL)
+            free(ret->err_msg);
+        free(ret);
+        ef_cleanup();
+    }
+    if (last_name != NULL) free(last_name);
+    if (last_ip != NULL) free(last_ip);
+    return 0;
+}
+
 void usage(const char* format) {
     if ( strcmp(format, "badparm") == 0 ) {
         cout << "Bad parameter" << endl;
-        cout << "Usage: ef [-Dnh] [-d|-q] [-s file] [-c file] [name]" << endl;
+        cout << "Usage: ef [-nh] [-D|j] [-d|-q] [-s file] [-c file] [name]" << endl;
     } else if ( strcmp(format, "short") == 0 ) {
-        cout << "Usage: ef [-Dnh] [-d|-q] [-s file] [-c file] [name]" << endl;
+        cout << "Usage: ef [-nh] [-D|-j] [-d|-q] [-s file] [-c file] [name]" << endl;
         cout << "Type \"ef --help\" for more help" << endl;
     } else {
         cout << "Usage: ef [OPTIONS] [name]" << endl;
@@ -536,6 +597,7 @@ void usage(const char* format) {
         cout << "  -d, --disable           disable easyfind (deletes registered name)" << endl;
         cout << "  -q, --query             query easyfind name" << endl;
         cout << "  -D, --daemon            daemonize easyfind client" << endl;
+        cout << "  -j, --json              return json response" << endl;
         cout << "  -n, --nosslverify       don't verify easyfind server certificate" << endl;
         cout << "  -c, --cafile=FILE       use FILE to verify easyfind server certificate" << endl;
         cout << "  -s, --store=FILE        use FILE to store easyfind name and last known ip" << endl;
@@ -556,6 +618,8 @@ void parse_parms(int argc, char** argv) {
                     exit(0);
                 } else if (word[j] == 'D' && cmd_array.entry_point == "ef") {
                     cmd_array.entry_point = "efd";
+                } else if (word[j] == 'j' && cmd_array.entry_point == "ef") {
+                    cmd_array.entry_point = "ef_json";
                 } else if (word[j] == 'd' && cmd_array.action.empty()) {
                     cmd_array.action = "disable";
                 } else if (word[j] == 'q' && cmd_array.action.empty()) {
@@ -578,6 +642,8 @@ void parse_parms(int argc, char** argv) {
             exit(0);
         } else if (word == "--daemon" && cmd_array.entry_point == "ef") {
              cmd_array.entry_point = "efd";
+        } else if (word == "--json" && cmd_array.entry_point == "ef") {
+            cmd_array.entry_point = "ef_json";
         } else if (word == "--disable" && cmd_array.action.empty()) {
              cmd_array.action = "disable";
         } else if (word == "--query" && cmd_array.action.empty()) {
@@ -588,6 +654,12 @@ void parse_parms(int argc, char** argv) {
              cmd_array.ca_file = word.substr(9);
         } else if (word.substr(0,8) == "--store=") {
              cmd_array.st_file = word.substr(8);
+        } else if (word == "getname" && cmd_array.entry_point == "ef_json") {
+            cmd_array.action = "getname";
+        } else if (word == "setname" && cmd_array.entry_point == "ef_json") {
+            cmd_array.action = "setname";
+        } else if (word == "disable" && cmd_array.entry_point == "ef_json") {
+            cmd_array.action = "disable";
         } else if (word[0] == '-') {
             usage("badparm");
             exit(1);
@@ -629,6 +701,8 @@ int main(int argc, char** argv) {
         cmd_array.entry_point = "ef";
     else if (strcmp(p_name, "efd") == 0)
         cmd_array.entry_point = "efd";
+    else
+        cmd_array.entry_point = "ef_json";
 
     parse_parms(argc,argv);
     check_state_perms();
@@ -644,5 +718,7 @@ int main(int argc, char** argv) {
         return efd(argc, argv);
     } else if (cmd_array.entry_point == "ef") {
         return ef(argc, argv);
+    } else {
+        return ef_json();
     }
 }

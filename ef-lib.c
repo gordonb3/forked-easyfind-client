@@ -129,26 +129,40 @@ struct curl_data_st* prep_query(const char* fqdn, const char* mac, const char* k
 }
 
 void parse_response(struct curl_data_st* data, struct ef_return* ret) {
+    parse_response(data, ret, false);
+}
+
+void parse_response(struct curl_data_st* data, struct ef_return* ret, bool print_json) {
     json_object* jun = json_tokener_parse(data->payload);
     const char* r_msg = NULL;
     const char* r_err = NULL;
     const char* r_ip = NULL;
     const char* r_name = NULL;
+    stringstream json_state;
+    stringstream json_content;
 
     json_object_object_foreach(jun, key, val) {
         if (strcmp(key, "error") == 0) {
             r_err = json_object_get_string(val);
+            json_state << "\"error\":\"" << r_err << "\"";
         } else if (strcmp(key, "msg") == 0) {
             r_msg = json_object_get_string(val);
+            json_content << ",\"msg\":\"" << r_msg << "\"";
         } else if (strcmp(key, "record") == 0) {
+            json_content << ",\"record\":" << json_object_get_string(val);
             json_object_object_foreach(val, key2, val2) {
                 if (strcmp(key2, "content") == 0)
                     r_ip = json_object_get_string(val2);
                 else if (strcmp(key2, "name") == 0)
                     r_name = json_object_get_string(val2); 
             }
+        } else {
+            json_content << ",\"" << key << "\":\"" << json_object_get_string(val) << "\"";
         }
     }
+
+    if (print_json)
+        cout << '{' << json_state.str() << json_content.str() << '}' << endl;
 
     ret->res = (strcmp(r_err, "true") == 0) ? 1 : 0;
 
@@ -168,13 +182,17 @@ void parse_response(struct curl_data_st* data, struct ef_return* ret) {
 }
 
 struct ef_return* ef_unregister(const char* mac, const char* key) {
+    return ef_unregister(mac, key, false);
+}
+
+struct ef_return* ef_unregister(const char* mac, const char* key, bool print_json) {
     struct ef_return* ret = (ef_return*)malloc(sizeof(struct ef_return));
     ret->ip = NULL;
     ret->name = NULL;
     struct curl_data_st* data = prep_query("", mac, key);
     res = curl_easy_perform(curl);
     if (res == CURLE_OK) {
-        parse_response(data, ret);
+        parse_response(data, ret, print_json);
     } else {
         ret->res = 2;
         ret->curl_err_msg = curl_easy_strerror(res);
@@ -187,13 +205,17 @@ struct ef_return* ef_unregister(const char* mac, const char* key) {
 }
 
 struct ef_return* ef_register_new(const char* fqdn, const char* mac, const char* key) {
+    return ef_register_new(fqdn, mac, key, false);
+}
+
+struct ef_return* ef_register_new(const char* fqdn, const char* mac, const char* key, bool print_json) {
     struct ef_return* ret = (ef_return*)malloc(sizeof(struct ef_return));
     ret->ip = NULL;
     ret->name = NULL;
     struct curl_data_st* data = prep_query(fqdn, mac, key);
     res = curl_easy_perform(curl);
     if (res == CURLE_OK) {
-        parse_response(data, ret);
+        parse_response(data, ret, print_json);
     } else {
         ret->res = 2;
         ret->curl_err_msg = curl_easy_strerror(res);
@@ -205,13 +227,17 @@ struct ef_return* ef_register_new(const char* fqdn, const char* mac, const char*
 }
 
 struct ef_return* ef_update(const char* mac, const char* key) {
+    return ef_update(mac, key, false);
+}
+
+struct ef_return* ef_update(const char* mac, const char* key, bool print_json) {
     struct ef_return* ret = (ef_return*)malloc(sizeof(struct ef_return));
     ret->ip = NULL;
     ret->name = NULL;
     struct curl_data_st* data = prep_query(NULL, mac, key);
     res = curl_easy_perform(curl);
     if (res == CURLE_OK) {
-        parse_response(data, ret);
+        parse_response(data, ret, print_json);
     } else {
         ret->res = 2;
         ret->curl_err_msg = curl_easy_strerror(res);
