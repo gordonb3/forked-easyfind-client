@@ -1,3 +1,4 @@
+#include <iostream>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <pwd.h>
@@ -41,6 +42,8 @@
 #define YEL  "\x1B[33m"
 #define RESET "\033[0m"
 
+using namespace std;
+
 char* key = NULL;
 char* mac = NULL;
 char* last_name = NULL;
@@ -59,7 +62,7 @@ void check_state_perms() {
             fprintf(stderr, RED "ERROR" RESET ": State file '%s' is not readable: %s\n%s\n", STATE_FILE, strerror(errno), root_msg);
             exit(1);
         } else if ( access(STATE_FILE, W_OK) == -1 ) {
-            fprintf(stderr, RED "ERROR" RESET  ": State file '%s' is not writeable: %s\n%s\n", STATE_FILE, strerror(errno), root_msg);
+            fprintf(stderr, RED "ERROR" RESET ": State file '%s' is not writeable: %s\n%s\n", STATE_FILE, strerror(errno), root_msg);
             exit(1);
         }
     } else {
@@ -103,7 +106,7 @@ void read_cmdline() {
     }
 
     if ( token != NULL ) {
-        key = malloc(strlen(token)-3);
+        key = (char*)malloc(strlen(token)-3);
         strcpy(key, token+4);
         key[strlen(token)-4] = '\0';
     }
@@ -139,7 +142,7 @@ void read_flash() {
     int l = strlen(pos);
     while ( l > 0 ) {
         if ( strncmp(pos, "key=", 4) == 0) {
-            key = malloc(l - 3);
+            key = (char*)malloc(l - 3);
             strcpy(key, pos + 4);
             break;
         }
@@ -158,7 +161,6 @@ void read_state(int r) {
         char* line = NULL;
         size_t bufsize=MAX_LINE_LEN;
         ssize_t len;
-        fflush(stdout);
         while ((len = getline(&line, &bufsize, st_file)) != -1){
             ssize_t c;
             for (c=0;c<len;c++) {
@@ -179,12 +181,12 @@ void read_state(int r) {
                 int sz = strlen(value);
                 if (sz > 0 && value[0] != 'Z') {
                     if (strcmp(varname,"name") == 0){
-                        last_name = malloc(sz+1);
+                        last_name = (char*)malloc(sz+1);
                         strncpy(last_name,value, sz);
                         last_name[sz] = '\0';
                     }
                     else if (strcmp(varname,"ip") == 0){
-                        last_ip = malloc(sz+1);
+                        last_ip = (char*)malloc(sz+1);
                         strncpy(last_ip,value, sz);
                         last_ip[sz] = '\0';
                     }
@@ -259,7 +261,7 @@ char* write_state() {
 void read_mac() {
     FILE* ad_file = fopen(WAN_MAC_FILE, "r");
     if (ad_file != NULL) {
-        mac = malloc(18);
+        mac = (char*)malloc(18);
         fscanf(ad_file, "%17s", mac);
         mac[17] = '\0';
         fclose(ad_file);
@@ -319,7 +321,7 @@ int ef(int argc, char** argv) {
         int r = regcomp(&regex, fqdn_regex, REG_EXTENDED | REG_ICASE | REG_NOSUB);
         if (r != 0) {
             size_t l = regerror(r, &regex, NULL, 0);
-            char* r_err = malloc(l);
+            char* r_err = (char*)malloc(l);
             regerror(r, &regex, r_err, l);
             fprintf(stderr, RED "ERROR" RESET ": Unable to compile fqdn regex: %s\n", r_err);
             free(r_err);
