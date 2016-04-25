@@ -1,3 +1,16 @@
+easyfind-client (0.2.1-1) UNRELEASED; urgency=low
+
+  * Make code for running the service unpriviliged optional
+  * Allow compile time override of some fixed paths and file locations
+
+    Bubba web UI expects easyfind.conf to be in /etc/network and using
+    this location will require running as root to recreate the state file.
+
+    This is a source code only change: when building a Debian package the
+    resulting binary will be the same as 0.2.1
+
+ -- Gordon Bos <gordon@bosvangennip.nl> Thu, 21 Apr 2016 12:08:22 +0200
+
 easyfind-client (0.2.1) UNRELEASED; urgency=medium
 
   * Let easyfind client use original easyfind.conf content as state file

@@ -10,7 +10,7 @@ ef: $(OBJ)
 	$(CC) $(LDFLAGS) ef.o ef-lib.o -o ef
 
 %.o: %.c $(DEP)
-	$(CC) $(CFLAGS) $< -o $@
+	$(CC) $(CFLAGS) $(EXTRAFLAGS) $< -o $@
 
 distclean: clean
 
