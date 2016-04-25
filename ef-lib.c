@@ -45,6 +45,10 @@ size_t curl_write_cb(char* ptr, size_t size, size_t nmemb, void *userdata) {
 }
 
 void ef_init() {
+    ef_init(EXCITO_CA);
+}
+
+void ef_init(const char* ca_file) {
     curl_global_init(CURL_GLOBAL_SSL);
     curl = curl_easy_init();
     if ( ! curl ) {
@@ -56,7 +60,12 @@ void ef_init() {
     sprintf(ua, "libcurl-agent/%s", info->version);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, ua);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
-    curl_easy_setopt(curl, CURLOPT_CAINFO, EXCITO_CA);
+    if (strcmp(ca_file,"None") == 0) {
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, FALSE);
+    } else {
+        curl_easy_setopt(curl, CURLOPT_CAINFO, ca_file);
+    }
     free(ua);
 }
 

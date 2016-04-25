@@ -1,5 +1,6 @@
 
 void ef_init();
+void ef_init(const char* ca_file);
 void ef_cleanup();
 
 struct ef_return {

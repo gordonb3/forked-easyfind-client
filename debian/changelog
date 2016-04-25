@@ -1,3 +1,10 @@
+easyfind-client (0.2.1-2) UNRELEASED; urgency=low
+
+  * Allow runtime override of some fixed paths and file locations
+  * Add command line parameter to ignore easyfind server certificate
+
+ -- Gordon Bos <gordon@bosvangennip.nl> Thu, 25 Apr 2016 12:13:35 +0200
+
 easyfind-client (0.2.1-1) UNRELEASED; urgency=low
 
   * Make code for running the service unpriviliged optional

@@ -14,6 +14,7 @@
 #include <syslog.h>
 #include <signal.h>
 
+#include "ef.h"
 #include "ef-lib.h"
 
 #if !defined STATE_DIR
@@ -49,6 +50,8 @@ char* mac = NULL;
 char* last_name = NULL;
 char* last_ip = NULL;
 char enabled[4] = "no";
+command_array cmd_array;
+
 
 /* State file opening/creation attempt */
 void check_state_perms() {
@@ -57,23 +60,23 @@ void check_state_perms() {
 #else
     const char* root_msg = "You should probably run as root";
 #endif
-    if ( access(STATE_FILE, F_OK ) != -1 ) {
-        if ( access(STATE_FILE, R_OK) == -1 ) {
-            fprintf(stderr, RED "ERROR" RESET ": State file '%s' is not readable: %s\n%s\n", STATE_FILE, strerror(errno), root_msg);
+    if ( access(cmd_array.st_file.c_str(), F_OK ) != -1 ) {
+        if ( access(cmd_array.st_file.c_str(), R_OK) == -1 ) {
+            fprintf(stderr, RED "ERROR" RESET ": State file '%s' is not readable: %s\n%s\n", cmd_array.st_file.c_str(), strerror(errno), root_msg);
             exit(1);
-        } else if ( access(STATE_FILE, W_OK) == -1 ) {
-            fprintf(stderr, RED "ERROR" RESET ": State file '%s' is not writeable: %s\n%s\n", STATE_FILE, strerror(errno), root_msg);
+        } else if ( access(cmd_array.st_file.c_str(), W_OK) == -1 ) {
+            fprintf(stderr, RED "ERROR" RESET ": State file '%s' is not writeable: %s\n%s\n", cmd_array.st_file.c_str(), strerror(errno), root_msg);
             exit(1);
         }
     } else {
-        if ( access(STATE_DIR, F_OK) == -1 ) {
-            fprintf(stderr, RED "ERROR" RESET ": State directory '%s' does not exist (%s).\n", STATE_DIR, strerror(errno));
+        if ( access(cmd_array.st_dir.c_str(), F_OK) == -1 ) {
+            fprintf(stderr, RED "ERROR" RESET ": State directory '%s' does not exist (%s).\n", cmd_array.st_dir.c_str(), strerror(errno));
             exit(1);
-        } else if ( access(STATE_DIR, R_OK | X_OK) == -1 ) {
-            fprintf(stderr, RED "ERROR" RESET ": State directory '%s' is not readable: %s\n%s\n", STATE_DIR, strerror(errno), root_msg);
+        } else if ( access(cmd_array.st_dir.c_str(), R_OK | X_OK) == -1 ) {
+            fprintf(stderr, RED "ERROR" RESET ": State directory '%s' is not readable: %s\n%s\n", cmd_array.st_dir.c_str(), strerror(errno), root_msg);
             exit(1);
-        } else if ( access(STATE_DIR, W_OK) == -1 ) {
-            fprintf(stderr, RED "ERROR" RESET ": State directory '%s' is not writeable: %s\n%s\n", STATE_DIR, strerror(errno), root_msg);
+        } else if ( access(cmd_array.st_dir.c_str(), W_OK) == -1 ) {
+            fprintf(stderr, RED "ERROR" RESET ": State directory '%s' is not writeable: %s\n%s\n", cmd_array.st_dir.c_str(), strerror(errno), root_msg);
             exit(1);
         }
     }
@@ -153,7 +156,7 @@ void read_flash() {
 
 /* Try to load last known state */
 void read_state(int r) {
-    FILE* st_file = fopen(STATE_FILE, "r");
+    FILE* st_file = fopen(cmd_array.st_file.c_str(), "r");
     if (st_file != NULL) {
         if (r == 0)
             printf("\nReading state file ... ");
@@ -225,7 +228,7 @@ int state_file_ok = 1;
 
 /* Write state file */
 char* write_state() {
-    FILE* st_file = fopen(STATE_FILE, "w");
+    FILE* st_file = fopen(cmd_array.st_file.c_str(), "w");
     if (st_file == NULL) {
         return strerror(errno);
     } else {
@@ -235,17 +238,17 @@ char* write_state() {
         if (state_file_ok == 1) {
             struct passwd *u_pwd = getpwnam(USER);
             if ( u_pwd == NULL ) {
-                unlink(STATE_FILE);
+                unlink(cmd_array.st_file);
                 return "Unable to get " USER " passwd information";
             }
             struct stat st_info;
-            stat(STATE_FILE, &st_info);
+            stat(cmd_array.st_file, &st_info);
             int chg_u = ( u_pwd->pw_uid != st_info.st_uid ) ? u_pwd->pw_uid : -1;
             int chg_g = ( u_pwd->pw_gid != st_info.st_gid ) ? u_pwd->pw_gid : -1;
             if (chg_u != -1 || chg_g != -1) {
-                int r = chown(STATE_FILE, chg_u, chg_g);
+                int r = chown(cmd_array.st_file, chg_u, chg_g);
                 if ( r == -1 ) {
-                    unlink(STATE_FILE);
+                    unlink(cmd_array.st_file.c_str());
                     return strerror(errno);
                 }
             }
@@ -277,18 +280,18 @@ void usage() {
 
 /* Main non-daemonic function */
 int ef(int argc, char** argv) {
-    if (argc != 2) {
-        usage();
-        exit(0);
-    } else if ( access(PID_FILE, F_OK) != -1 ) {
+    if ( access(PID_FILE, F_OK) != -1 ) {
         fprintf(stderr, "easyfind daemon is running; stop it before running the `ef` command\n");
         exit(1);
-    } else if ( strcmp(argv[1], "-d") == 0 ) {
+    } else if ( cmd_array.action == "disable" ) {
         read_state(0);
         printf("Unregistering easyfind ... ");
         fflush(stdout);
         struct ef_return* ret;
-        ef_init();
+        if (cmd_array.ca_file.empty())
+            ef_init();
+        else
+            ef_init(cmd_array.ca_file.c_str());
         ret = ef_unregister(mac, key);
         if (ret->res != 0) {
             printf(RED "KO" RESET "\n");
@@ -297,7 +300,7 @@ int ef(int argc, char** argv) {
             printf(GRN "OK" RESET "\n");
             if (last_name != NULL) {
                 printf("Removing state file ... ");
-                if (unlink(STATE_FILE) == -1) {
+                if (unlink(cmd_array.st_file.c_str()) == -1) {
                     printf(RED "KO" RESET "\n");   
                     fprintf(stderr, YEL "WARNING" RESET ": unable to remove state file (%s)\n",  strerror(errno));
                 } else {
@@ -314,7 +317,7 @@ int ef(int argc, char** argv) {
         }
         free(ret);
         ef_cleanup();
-    } else {
+    } else if (cmd_array.action == "setname") {
         read_state(0);
         const char* fqdn_regex = "^([a-z0-9-]{1,63}\\.){2}[a-z]{2,63}$";
         regex_t regex;
@@ -328,11 +331,11 @@ int ef(int argc, char** argv) {
             regfree(&regex);
             return 1;
         }
-        r = regexec(&regex, argv[1], 0, NULL, 0);
+        r = regexec(&regex, cmd_array.ef_name.c_str(), 0, NULL, 0);
         regfree(&regex);
         if (r != 0) {
             if (r == REG_NOMATCH) {
-                fprintf(stderr,  RED "ERROR" RESET ": The requested domain %s is not valid\n", argv[1]);
+                fprintf(stderr,  RED "ERROR" RESET ": The requested domain %s is not valid\n", cmd_array.ef_name.c_str());
                 return 1;
             } else {
                 fprintf(stderr,  RED "ERROR" RESET ": There was an error while trying to check domain regex.\n");
@@ -340,15 +343,15 @@ int ef(int argc, char** argv) {
             }
         }
         
-        if ( last_name == NULL || strcmp(last_name, argv[1]) != 0 ) {
+        if ( last_name == NULL || strcmp(last_name, cmd_array.ef_name.c_str()) != 0 ) {
             if (last_name == NULL)
-                printf("Registering new record '%s'... ", argv[1]);
+                printf("Registering new record '%s'... ", cmd_array.ef_name.c_str());
             else
-                printf("Replacing record '%s' with '%s'... ", last_name, argv[1]);
+                printf("Replacing record '%s' with '%s'... ", last_name, cmd_array.ef_name.c_str());
             fflush(stdout);
             struct ef_return* ret;
             ef_init();
-            ret = ef_register_new(argv[1], mac, key);
+            ret = ef_register_new(cmd_array.ef_name.c_str(), mac, key);
             if (ret->res != 0) {
                 printf(RED "KO" RESET "\n");
                 fprintf(stderr, RED "ERROR" RESET ": %s\n", (ret->res == 1) ? ret->err_msg : ret->curl_err_msg);
@@ -379,7 +382,7 @@ int ef(int argc, char** argv) {
             free(ret);
             ef_cleanup();
         } else {
-            printf("\nThis system has already registered record '%s';\nRun easyfind service to do update the record.\n\n", argv[1]);
+            printf("\nThis system has already registered record '%s';\nRun easyfind service to do update the record.\n\n", cmd_array.ef_name.c_str());
         }
     }
 
@@ -499,7 +502,10 @@ int efd(int argc, char** argv) {
     signal(SIGHUP, SIG_IGN);
     signal(SIGTERM,handle_term);
     
-    ef_init();
+    if (cmd_array.ca_file.empty())
+        ef_init();
+    else
+        ef_init(cmd_array.ca_file.c_str());
     int r = 0;
     while(running) {
         check_and_update();
@@ -517,7 +523,114 @@ int efd(int argc, char** argv) {
     return 0;
 }
 
+void usage(const char* format) {
+    if ( strcmp(format, "badparm") == 0 ) {
+        cout << "Bad parameter" << endl;
+        cout << "Usage: ef [-Dnh] [-d|-q] [-s file] [-c file] [name]" << endl;
+    } else if ( strcmp(format, "short") == 0 ) {
+        cout << "Usage: ef [-Dnh] [-d|-q] [-s file] [-c file] [name]" << endl;
+        cout << "Type \"ef --help\" for more help" << endl;
+    } else {
+        cout << "Usage: ef [OPTIONS] [name]" << endl;
+        cout << endl;
+        cout << "  -d, --disable           disable easyfind (deletes registered name)" << endl;
+        cout << "  -q, --query             query easyfind name" << endl;
+        cout << "  -D, --daemon            daemonize easyfind client" << endl;
+        cout << "  -n, --nosslverify       don't verify easyfind server certificate" << endl;
+        cout << "  -c, --cafile=FILE       use FILE to verify easyfind server certificate" << endl;
+        cout << "  -s, --store=FILE        use FILE to store easyfind name and last known ip" << endl;
+        cout << "  -h, --help              display this help and exit" << endl;
+        cout << "  " << endl;
+    }
+}
+
+void parse_parms(int argc, char** argv) {
+    int i=1;
+    std::string word;
+    while (i < argc) {
+        word = argv[i];
+        if (word.length() > 1 && word[0] == '-' && word[1] != '-') {
+            for (size_t j=1;j<word.length();j++) {
+                if (word[j] == 'h') {
+                    usage("short");
+                    exit(0);
+                } else if (word[j] == 'D' && cmd_array.entry_point == "ef") {
+                    cmd_array.entry_point = "efd";
+                } else if (word[j] == 'd' && cmd_array.action.empty()) {
+                    cmd_array.action = "disable";
+                } else if (word[j] == 'q' && cmd_array.action.empty()) {
+                    cmd_array.action = "getname";
+                } else if (word[j] == 'n') {
+                    cmd_array.ca_file = "None";
+                } else if (word[j] == 'c' && j==(word.length()-1)) {
+                    i++;
+                    cmd_array.ca_file = argv[i];
+                } else if (word[j] == 's' && j==(word.length()-1)) {
+                    i++;
+                    cmd_array.st_file = argv[i];
+                } else {
+                    usage("badparm");
+                    exit(1);
+                }
+            }
+        } else if (word == "--help") {
+            usage("long");
+            exit(0);
+        } else if (word == "--daemon" && cmd_array.entry_point == "ef") {
+             cmd_array.entry_point = "efd";
+        } else if (word == "--disable" && cmd_array.action.empty()) {
+             cmd_array.action = "disable";
+        } else if (word == "--query" && cmd_array.action.empty()) {
+             cmd_array.action = "getname";
+        } else if (word == "--nosslverify") {
+             cmd_array.ca_file = "None";
+        } else if (word.substr(0,9) == "--cafile=") {
+             cmd_array.ca_file = word.substr(9);
+        } else if (word.substr(0,8) == "--store=") {
+             cmd_array.st_file = word.substr(8);
+        } else if (word[0] == '-') {
+            usage("badparm");
+            exit(1);
+        } else if (cmd_array.ef_name.empty()) {
+            cmd_array.ef_name = word;
+        } else {
+            usage("badparm");
+            exit(1);
+        }
+        i++;
+    }
+    if (cmd_array.entry_point == "efd" && !cmd_array.action.empty() && !cmd_array.ef_name.empty()) {
+        usage("badparm");
+        exit(1);
+    }
+    if (cmd_array.entry_point == "ef" && cmd_array.action.empty() && cmd_array.ef_name.empty()) {
+        usage("badparm");
+        exit(1);
+    }
+    if (cmd_array.entry_point == "ef" && cmd_array.action.empty() && !cmd_array.ef_name.empty()) {
+        cmd_array.action = "setname";
+    } else if (cmd_array.action != "setname" && !cmd_array.ef_name.empty()) {
+        usage("badparm");
+        exit(1);
+    }
+    if (cmd_array.st_file.empty()) {
+        cmd_array.st_file = STATE_FILE;
+        cmd_array.st_dir  = STATE_DIR;
+    } else {
+        size_t last_slash = cmd_array.st_file.find_last_of("/");
+        cmd_array.st_dir = cmd_array.st_file.substr(0,last_slash);
+    }
+}
+
 int main(int argc, char** argv) {
+    char* last_slash = strrchr(argv[0], (int)'/');
+    const char* p_name = (last_slash == NULL) ? argv[0] : last_slash+1;
+    if (strcmp(p_name, "ef") == 0) 
+        cmd_array.entry_point = "ef";
+    else if (strcmp(p_name, "efd") == 0)
+        cmd_array.entry_point = "efd";
+
+    parse_parms(argc,argv);
     check_state_perms();
     read_cmdline();
     if ( key == NULL )
@@ -527,11 +640,9 @@ int main(int argc, char** argv) {
         exit(1);
     }
     read_mac();
-    char* last_slash = strrchr(argv[0], (int)'/');
-    const char* p_name = (last_slash == NULL) ? argv[0] : last_slash+1;
-    if (strcmp(p_name, "efd") == 0) {
+    if (cmd_array.entry_point == "efd") {
         return efd(argc, argv);
-    } else {
+    } else if (cmd_array.entry_point == "ef") {
         return ef(argc, argv);
     }
 }
