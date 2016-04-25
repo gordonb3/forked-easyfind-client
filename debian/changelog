@@ -1,3 +1,9 @@
+easyfind-client (0.2.1) UNRELEASED; urgency=medium
+
+  * Let easyfind client use original easyfind.conf content as state file
+
+ -- Gordon Bos <gordon@bosvangennip.nl> Thu, 21 Apr 2016 10:08:16 +0200
+
 easyfind-client (0.2) UNRELEASED; urgency=medium
 
   * Added option to read key from flash if not available on cmdline

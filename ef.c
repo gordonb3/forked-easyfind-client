@@ -16,7 +16,7 @@
 #include "ef-lib.h"
 
 #define STATE_DIR "/var/lib/easyfind"
-#define STATE_FILE "/var/lib/easyfind/state"
+#define STATE_FILE "/var/lib/easyfind/easyfind.conf"
 #define PID_FILE "/var/run/easyfind/efd.pid"
 #define WAN_IF "eth0"
 #define MAX_LINE_LEN 1024
@@ -35,6 +35,7 @@ char* key = NULL;
 char* mac = NULL;
 char* last_name = NULL;
 char* last_ip = NULL;
+char enabled[4] = "no";
 
 /* State file opening/creation attempt */
 void check_state_perms() {
@@ -136,37 +137,62 @@ void read_flash() {
 /* Try to load last known state */
 void read_state(int r) {
     FILE* st_file = fopen(STATE_FILE, "r");
-    char* res;
     if (st_file != NULL) {
         if (r == 0)
             printf("\nReading state file ... ");
         fflush(stdout);
-        char buf[MAX_LINE_LEN];
-        while (1) {
-            res = fgets(buf, MAX_LINE_LEN, st_file);
-            if (res == NULL) {
-                break;
+        char* line = NULL;
+        size_t bufsize=MAX_LINE_LEN;
+        ssize_t len;
+        fflush(stdout);
+        while ((len = getline(&line, &bufsize, st_file)) != -1){
+            ssize_t c;
+            for (c=0;c<len;c++) {
+                if (line[c] == '#' || line[c] == ';' || line[c] == '\r' || line[c] == '\n'){
+                    len = c;
+                    break;
+                } else if (line[c] > 0x40){
+                    line[c] = (line[c] | 0x60);
+                }
             }
-            if ( last_name == NULL ) {
-                int sz = strlen(buf);
-                last_name = malloc(sz);
-                strncpy(last_name, buf, sz-1);
-                last_name[sz-1] = '\0';
-            } else if ( last_ip == NULL ) {
-                int sz = strlen(buf);
-                last_ip = malloc(sz);
-                strncpy(last_ip, buf, sz-1);
-                last_ip[sz-1] = '\0';
-            } else {
-                break;
+            char strtokbuf[MAX_LINE_LEN];
+            strncpy(strtokbuf,line,len);
+            strtokbuf[len]=' ';
+            strtokbuf[len+1]='Z';
+            if (len > 0){
+                char* varname = strtok(strtokbuf," \t=\r\n");
+                char* value = strtok(NULL," \t=\r\n");
+                int sz = strlen(value);
+                if (sz > 0 && value[0] != 'Z') {
+                    if (strcmp(varname,"name") == 0){
+                        last_name = malloc(sz+1);
+                        strncpy(last_name,value, sz);
+                        last_name[sz] = '\0';
+                    }
+                    else if (strcmp(varname,"ip") == 0){
+                        last_ip = malloc(sz+1);
+                        strncpy(last_ip,value, sz);
+                        last_ip[sz] = '\0';
+                    }
+                    else if (strcmp(varname,"enable") == 0){
+                            if (sz < 4)
+                            strcpy(enabled,value);
+                        else
+                            strcpy(enabled,"no");
+                    }
+                }
             }
         }
         fclose(st_file);
-        if (last_name == NULL || last_ip == NULL) {
+        if (line != NULL)
+            free(line);
+        if (last_name == NULL || last_ip == NULL || strcmp(enabled,"yes")!=0) {
             if (last_name != NULL)
                 free(last_name);
             if (last_ip != NULL)
                 free(last_ip);
+            last_name = NULL;
+            last_ip = NULL;
             if (r == 0)
                 printf(RED "KO" RESET "\n");
         } else if ( r == 0 ) {
@@ -185,7 +211,7 @@ char* write_state() {
     if (st_file == NULL) {
         return strerror(errno);
     } else {
-        fprintf(st_file, "%s\n%s\n", last_name, last_ip);
+        fprintf(st_file, "enable = %s\nip = %s\nname = %s\n", enabled, last_ip, last_name);
         fclose(st_file);
         if (state_file_ok == 1) {
             struct passwd *u_pwd = getpwnam(USER);
@@ -316,6 +342,7 @@ int ef(int argc, char** argv) {
                 last_ip = ret->ip;
                 printf("Writing state file ... ");
                 fflush(stdout);
+                strcpy(enabled,"yes");
                 char* res_w = write_state();
                 if (res_w != NULL) {
                     printf(RED "KO" RESET "\n");
@@ -346,21 +373,21 @@ void check_and_update() {
     if (ip == NULL) {
         syslog(LOG_ERR, "Unable to get external ip from easyfind !");
         return;
-    } else if (strcmp(ip, last_ip) != 0) {
+    } else if (last_ip == NULL || strcmp(ip, last_ip) != 0) {
         syslog(LOG_INFO, "new IP detected (%s); updating easyfind...", ip);
         struct ef_return* ret = ef_update(mac, key);
         if (ret->res != 0) {
             syslog(LOG_ERR, "Error while trying to update easyfind: %s", (ret->res == 1) ? ret->err_msg : ret->curl_err_msg);
             running = 0;
         } else {
-            if (strcmp(last_name, ret->name) != 0) {
+            if (last_name != NULL || strcmp(last_name, ret->name) != 0) {
                 syslog(LOG_ERR, "Easyfind reported name '%s' whereas '%s' is configured ... cannot continue", ret->name, last_name);
                 free(ret->name);
                 free(ret->ip);
                 running = 0;
             } else {
-                free(last_name);
-                free(last_ip);
+                if (last_name != NULL) free(last_name);
+                if (last_ip != NULL) free(last_ip);
                 last_name = ret->name;
                 last_ip = ret->ip;
                 char* res_w = write_state();
@@ -390,7 +417,7 @@ int efd(int argc, char** argv) {
 
     read_state(1);
 
-    if (last_name == NULL || last_ip == NULL) {
+    if (last_name == NULL || last_ip == NULL || strcmp(enabled,"yes")!=0) {
         fprintf(stderr, "Unable to read data from state file ; Configure with `ef` before running this daemon.\n");
         exit(1);
     }

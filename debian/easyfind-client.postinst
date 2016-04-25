@@ -20,6 +20,12 @@ case "$1" in
         install -d -m0755 -o easyfind -g easyfind /var/lib/easyfind
     elif [ $(stat -c "%U:%G" /var/lib/easyfind) != "easyfind:easyfind" ] ; then
         chown -R easyfind:easyfind /var/lib/easyfind 
+    elif [ -f /var/lib/easyfind/state ] ; then
+        NAME=$(head -n1 /var/lib/easyfind/state)
+        IP=$(grep -v "${NAME}" /var/lib/easyfind/state)
+        echo -e "enabled = yes\nip = ${IP}\nname = ${NAME}\n" > /var/lib/easyfind/easyfind.conf
+        rm /var/lib/easyfind/state
+        chown -R easyfind:easyfind /var/lib/easyfind/easyfind.conf
     else
         echo "state directory /var/lib/easyfind already exists, doing nothing."
     fi
