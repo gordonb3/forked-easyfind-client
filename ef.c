@@ -554,10 +554,12 @@ int ef_json() {
                 if (unlink(cmd_array.st_file.c_str()) == -1)
                     fprintf(stderr, YEL "WARNING" RESET ": unable to remove state file (%s)\n",  strerror(errno));
             }
-        } else if (cmd_array.action == "setname") {
-            ret = ef_register_new(cmd_array.ef_name.c_str(), mac, key, true);
         } else {
-            ret = ef_update(mac, key, true);
+            if (cmd_array.action == "setname") {
+                ret = ef_register_new(cmd_array.ef_name.c_str(), mac, key, true);
+            } else {
+                ret = ef_update(mac, key, true);
+            }
             if (ret->res == 0) {
                 if (last_name != NULL) free(last_name);
                 if (last_ip != NULL) free(last_ip);

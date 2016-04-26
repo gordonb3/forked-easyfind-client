@@ -1,3 +1,9 @@
+easyfind-client (0.3) UNRELEASED; urgency=medium
+
+  * Add json entry point for web UI integration
+
+ -- Gordon Bos <gordon@bosvangennip.nl> Thu, 26 Apr 2016 16:09:01 +0200
+
 easyfind-client (0.2.1-2) UNRELEASED; urgency=low
 
   * Allow runtime override of some fixed paths and file locations
