@@ -538,7 +538,7 @@ int ef_json() {
         fprintf(stderr, YEL "WARNING" RESET ": easyfind daemon will be stopped.\n");
 
     if (last_name == NULL && cmd_array.action != "setname" && cmd_array.action != "getname") {
-        cout << "{\"error\":\"true\",\"msg\":\"Easyfind not enabled.\"" << endl;
+        cout << "{\"error\":\"true\",\"msg\":\"Easyfind not enabled.\"}" << endl;
     } else if (cmd_array.action == "getname" && last_name != NULL && last_ip != NULL) {
         cout << "{\"error\":\"false\",\"ip\":\"" << last_ip << "\",\"name\":\"" << last_name << "\"}" << endl;
     } else {
@@ -589,9 +589,9 @@ int ef_json() {
 void usage(const char* format) {
     if ( strcmp(format, "badparm") == 0 ) {
         cout << "Bad parameter" << endl;
-        cout << "Usage: ef [-nh] [-D|j] [-d|-q] [-s file] [-c file] [name]" << endl;
+        cout << "Usage: ef [-nh] [-D|j] [-d|-q] [-s file] [-c file] [json command] [name]" << endl;
     } else if ( strcmp(format, "short") == 0 ) {
-        cout << "Usage: ef [-nh] [-D|-j] [-d|-q] [-s file] [-c file] [name]" << endl;
+        cout << "Usage: ef [-nh] [-D|-j] [-d|-q] [-s file] [-c file] [json command] [name]" << endl;
         cout << "Type \"ef --help\" for more help" << endl;
     } else {
         cout << "Usage: ef [OPTIONS] [name]" << endl;
@@ -604,6 +604,12 @@ void usage(const char* format) {
         cout << "  -c, --cafile=FILE       use FILE to verify easyfind server certificate" << endl;
         cout << "  -s, --store=FILE        use FILE to store easyfind name and last known ip" << endl;
         cout << "  -h, --help              display this help and exit" << endl;
+        cout << "  " << endl;
+        cout << "Json mode also accepts the following command input:" << endl;
+        cout << "  <none>                  update easyfind server with current IP" << endl;
+        cout << "  getname                 recreate state file with info from easyfind server" << endl;
+        cout << "  setname <name>          enable easyfind" << endl;
+        cout << "  disable                 disable easyfind" << endl;
         cout << "  " << endl;
     }
 }
