@@ -1,4 +1,4 @@
-CC      = c++
+CC      = g++
 CFLAGS  = -c -Wall
 LDFLAGS = -lcurl -ljson-c
 OBJ     = ef.o ef-lib.o
