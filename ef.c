@@ -125,7 +125,8 @@ void read_flash() {
     if (fd == -1)
         return;
     lseek(fd, 0x50000, SEEK_SET);
-    read(fd, env, 8192);
+    if (read(fd, env, 8192) != 1)
+        return;
     if ( env[4] == 0x0 ) {
         lseek(fd, 0x60000, SEEK_SET);
         read(fd, env, 8192);
@@ -137,7 +138,8 @@ void read_flash() {
     int fd = open("/dev/mtd1", O_RDONLY);
     if ( fd == -1 )
         return;
-    read(fd, env, 65536);
+    if (read(fd, env, 65536) != 1)
+        return;
     char *pos = &env[4];
 #endif
     close(fd);
@@ -265,8 +267,8 @@ void read_mac() {
     FILE* ad_file = fopen(WAN_MAC_FILE, "r");
     if (ad_file != NULL) {
         mac = (char*)malloc(18);
-        fscanf(ad_file, "%17s", mac);
-        mac[17] = '\0';
+        if (fscanf(ad_file, "%17s", mac) == 1)
+            mac[17] = '\0';
         fclose(ad_file);
     } else {
         fprintf(stderr, RED "ERROR" RESET ": Unable to open WAN interface mac address file %s !\n", WAN_MAC_FILE);
@@ -500,14 +502,15 @@ int efd(int argc, char** argv) {
 
     char pid_s[10];
     sprintf(pid_s, "%d\n", getpid());
-    write(pid_fd, pid_s, strlen(pid_s));
+    if (write(pid_fd, pid_s, strlen(pid_s)) != 1)
+        return 1;
     signal(SIGCHLD,SIG_IGN);
     signal(SIGTSTP,SIG_IGN); 
     signal(SIGTTOU,SIG_IGN);
     signal(SIGTTIN,SIG_IGN);
     signal(SIGHUP, SIG_IGN);
     signal(SIGTERM,handle_term);
-    
+
     if (cmd_array.ca_file.empty())
         ef_init();
     else
