@@ -142,7 +142,7 @@ void read_flash() {
     fd.read (env, 65536);
     char *pos = &env[4];
 #endif
-    close(fd);
+    fd.close();
 
     int l = strlen(pos);
     while ( l > 0 ) {
