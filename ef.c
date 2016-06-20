@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <pwd.h>
@@ -121,25 +122,24 @@ void read_flash() {
 #if defined(__powerpc__) || defined(__ppc__) || defined(__PPC__)
     // Bubba|2
     char env[8192];
-    int fd = open("/dev/mtd0", O_RDONLY);
-    if (fd == -1)
+    ifstream fd ("/dev/mtd0", ios::in|ios::binary|ios::ate);
+    if (!fd.is_open())
         return;
-    lseek(fd, 0x50000, SEEK_SET);
-    if (read(fd, env, 8192) != 1)
-        return;
+    fd.seekg (0x50000, ios::beg);
+    fd.read (env, 8192);
     if ( env[4] == 0x0 ) {
-        lseek(fd, 0x60000, SEEK_SET);
-        read(fd, env, 8192);
+        fd.seekg (0x60000, ios::beg);
+        fd.read (env, 8192);
     }
     char *pos = &env[5];
 #else
     // B3
     char env[65536];
-    int fd = open("/dev/mtd1", O_RDONLY);
-    if ( fd == -1 )
+    ifstream fd ("/dev/mtd1", ios::in|ios::binary|ios::ate);
+    if (!fd.is_open())
         return;
-    if (read(fd, env, 65536) != 1)
-        return;
+    fd.seekg (0, ios::beg);
+    fd.read (env, 65536);
     char *pos = &env[4];
 #endif
     close(fd);
