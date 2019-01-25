@@ -1,4 +1,8 @@
+ifdef CROSS_COMPILE
 CC      = $(CROSS_COMPILE)g++
+else
+CC      = $(shell g++ -dumpmachine)-g++
+endif
 CFLAGS  +=  -I. -c -Wall
 LDFLAGS +=  -lcurl
 OBJ     = ef.o ef-lib.o
