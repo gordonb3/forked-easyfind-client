@@ -1,5 +1,5 @@
-ifdef CROSS_COMPILE
-CC      = $(CROSS_COMPILE)g++
+ifdef CHOST
+CC      = $(CHOST)-g++
 else
 CC      = $(shell g++ -dumpmachine)-g++
 endif
