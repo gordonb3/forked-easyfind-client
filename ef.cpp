@@ -682,6 +682,9 @@ void parse_parms(int argc, char** argv) {
         }
         i++;
     }
+    if (i == 1) // default action
+        cmd_array.action = "getname";
+
     if (cmd_array.entry_point == "efd" && !cmd_array.action.empty() && !cmd_array.ef_name.empty()) {
         usage("badparm");
         exit(1);

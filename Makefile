@@ -1,21 +1,22 @@
-CC      = g++
-CFLAGS  +=  -c -Wall
-LDFLAGS +=  -lcurl -ljson-c
+CC      = $(CROSS_COMPILE)g++
+CFLAGS  +=  -I. -c -Wall
+LDFLAGS +=  -lcurl
 OBJ     = ef.o ef-lib.o
+LIBS	= $(patsubst %.cpp,%.o,$(wildcard jsoncpp/*.cpp))
 DEPS    = ef-lib.h
 
 all: ef
 
-ef: $(OBJ)
-	$(CC) ef.o ef-lib.o $(LDFLAGS) -o ef
+ef: $(OBJ) $(LIBS)
+	$(CC) $(OBJ) $(LIBS) $(LDFLAGS) -o ef
 
-%.o: %.c $(DEP)
+%.o: %.cpp $(DEP)
 	$(CC) $(CFLAGS) $(EXTRAFLAGS) $< -o $@
 
 distclean: clean
 
 clean:
-	rm -f $(OBJ) ef
+	rm -f $(OBJ) $(LIBS) ef
 
 install: all
 	install -d -m 0755 $(DESTDIR)/usr/bin

@@ -4,7 +4,7 @@
 #include <malloc.h>
 #include <string.h>
 #include <curl/curl.h>
-#include <json-c/json.h>
+#include <jsoncpp/json.h>
 
 #include "ef-lib.h"
 
@@ -62,7 +62,7 @@ void ef_init(const char* ca_file) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
     if (strcmp(ca_file,"None") == 0) {
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, FALSE);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
     } else {
         curl_easy_setopt(curl, CURLOPT_CAINFO, ca_file);
     }
@@ -88,22 +88,20 @@ char* get_ip() {
 
     res = curl_easy_perform(curl);
     if ( res == CURLE_OK ) {
-        json_object* jip = json_tokener_parse(data.payload);
+	Json::Value j_result;
+	Json::Reader j_reader;
+	bool ret = j_reader.parse(data.payload, j_result);
         free(data.payload);
-        char *r_ip = NULL;
-        json_object_object_foreach(jip, key, val) {
-            if (strcmp(key, "ip_address") == 0) {
-                const char* ip = json_object_get_string(val);
-                r_ip = (char*)malloc(strlen(ip)+1);
-                strcpy(r_ip, ip);
-            }
-        }
-        json_object_put(jip);
-        return r_ip;
+	if ((ret) && j_result.isMember("ip_address"))
+	{
+                char *r_ip = NULL;
+                strcpy(r_ip, j_result["ip_address"].asCString());
+		return r_ip;
+	}
     } else {
         free(data.payload);
-        return NULL;
     }
+    return NULL;
 }
 
 struct curl_data_st* prep_query(const char* fqdn, const char* mac, const char* key) {
@@ -133,38 +131,40 @@ void parse_response(struct curl_data_st* data, struct ef_return* ret) {
 }
 
 void parse_response(struct curl_data_st* data, struct ef_return* ret, bool print_json) {
-    json_object* jun = json_tokener_parse(data->payload);
     const char* r_msg = NULL;
-    const char* r_err = NULL;
     const char* r_ip = NULL;
     const char* r_name = NULL;
-    stringstream json_state;
-    stringstream json_content;
 
-    json_object_object_foreach(jun, key, val) {
-        if (strcmp(key, "error") == 0) {
-            r_err = json_object_get_string(val);
-            json_state << "\"error\":\"" << r_err << "\"";
-        } else if (strcmp(key, "msg") == 0) {
-            r_msg = json_object_get_string(val);
-            json_content << ",\"msg\":\"" << r_msg << "\"";
-        } else if (strcmp(key, "record") == 0) {
-            json_content << ",\"record\":" << json_object_get_string(val);
-            json_object_object_foreach(val, key2, val2) {
-                if (strcmp(key2, "content") == 0)
-                    r_ip = json_object_get_string(val2);
-                else if (strcmp(key2, "name") == 0)
-                    r_name = json_object_get_string(val2); 
-            }
-        } else {
-            json_content << ",\"" << key << "\":\"" << json_object_get_string(val) << "\"";
+    Json::Value j_result;
+    Json::Reader j_reader;
+    bool res = j_reader.parse(data->payload, j_result);
+    if (!res)
+    {
+        ret->res = 1;
+        strcpy(ret->err_msg, "json parser error");
+        if (print_json)
+        {
+            std::cout << "{\"error\":true,\"msg\":\"invalid json data\"}\n";
         }
     }
 
-    if (print_json)
-        cout << '{' << json_state.str() << json_content.str() << '}' << endl;
+    if (j_result.isMember("error"))
+	ret->res = (j_result["error"].asString() == "true") ? 1 : 0;
+    if (j_result.isMember("msg"))
+        r_msg = j_result["msg"].asCString();
+    if (j_result.isMember("record"))
+    {
+        if (j_result["record"].isMember("content"))
+            r_ip = j_result["record"]["content"].asCString();
+        if (j_result["record"].isMember("name"))
+            r_name = j_result["record"]["name"].asCString();
+    }
 
-    ret->res = (strcmp(r_err, "true") == 0) ? 1 : 0;
+    if (print_json)
+    {
+        Json::FastWriter fastWriter;
+        std::cout << fastWriter.write(j_result) << "\n";
+    }
 
     if (r_msg != NULL) {
         ret->err_msg = (char*)malloc(strlen(r_msg)+1);
@@ -178,7 +178,6 @@ void parse_response(struct curl_data_st* data, struct ef_return* ret, bool print
         ret->name = (char*)malloc(strlen(r_name)+1);
         strcpy(ret->name, r_name);
     }
-    json_object_put(jun);
 }
 
 struct ef_return* ef_unregister(const char* mac, const char* key) {
