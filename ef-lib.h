@@ -1,10 +1,6 @@
-
 void ef_init();
 void ef_init(const char* ca_file);
 void ef_cleanup();
-
-void parse_response(struct curl_data_st* data, struct ef_return* ret);
-void parse_response(struct curl_data_st* data, struct ef_return* ret, bool print_json);
 
 struct ef_return {
     int res;

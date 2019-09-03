@@ -1,3 +1,4 @@
+#include <vector>
 #include <iostream>
 #include <sstream>
 #include <stdlib.h>
@@ -25,22 +26,10 @@ const char* return_codes[] = {
 CURL *curl;
 CURLcode res;
 
-/* holder for curl write */
-struct curl_data_st {
-    char *req;
-    char *payload;
-    size_t size;
-};
-
 size_t curl_write_cb(char* ptr, size_t size, size_t nmemb, void *userdata) {
     size_t realsize = size * nmemb;
-    struct curl_data_st *data = (struct curl_data_st*)userdata;
-    data->payload = (char*)realloc(data->payload, data->size + realsize + 1);
-    if (data->payload == NULL)
-        return 0;
-    memcpy(&(data->payload[data->size]), ptr, realsize);
-    data->size += realsize;
-    data->payload[data->size] = '\0';
+    std::vector<unsigned char>* vHTTPResponse = (std::vector<unsigned char>*)userdata;
+    vHTTPResponse->insert(vHTTPResponse->end(), (unsigned char*)ptr, (unsigned char*)ptr + realsize);
     return realsize;
 }
 
@@ -79,33 +68,28 @@ char* error_desc(int err_code) {
 }
 
 char* get_ip() {
-    struct curl_data_st data;
-    data.payload = (char*)malloc(1);
-    data.size = 0;
+    std::vector<unsigned char> v_response;
     curl_easy_setopt(curl, CURLOPT_URL, IP_URL);
     curl_easy_setopt(curl, CURLOPT_HTTPGET, 1);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&data);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&v_response);
 
     res = curl_easy_perform(curl);
-    if ( res == CURLE_OK ) {
-	Json::Value j_result;
-	Json::Reader j_reader;
-	bool ret = j_reader.parse(data.payload, j_result);
-        free(data.payload);
-	if ((ret) && j_result.isMember("ip_address"))
-	{
-                char *r_ip = NULL;
-                strcpy(r_ip, j_result["ip_address"].asCString());
-		return r_ip;
-	}
-    } else {
-        free(data.payload);
+    if ( res == CURLE_OK )
+    {
+        std::string sz_response;
+        sz_response.insert(sz_response.begin(), v_response.begin(), v_response.end());
+        Json::Value j_result;
+        Json::Reader j_reader;
+        bool ret = j_reader.parse(sz_response.c_str(), j_result);
+        if ((ret) && j_result.isMember("ip_address"))
+        {
+            return (char*)j_result["ip_address"].asCString();
+        }
     }
     return NULL;
 }
 
-struct curl_data_st* prep_query(const char* fqdn, const char* mac, const char* key) {
-    struct curl_data_st* data = (curl_data_st*)malloc(sizeof(struct curl_data_st));
+std::string prep_postdata(const char* fqdn, const char* mac, const char* key) {
     curl_easy_setopt(curl, CURLOPT_URL, EF_URL);
     char* esc_key = curl_easy_escape(curl, key, 0);
     char* esc_mac = curl_easy_escape(curl, mac, 0);
@@ -114,30 +98,28 @@ struct curl_data_st* prep_query(const char* fqdn, const char* mac, const char* k
     if (fqdn != NULL) {
         ssreq << "&newname=" << fqdn << "&oldname=";
     }
-    std::string reqstr = ssreq.str();
-    data->req = (char*)malloc(reqstr.length());
-    strcpy(data->req,reqstr.c_str());
     curl_free(esc_key);
     curl_free(esc_mac);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data->req);
-    data->payload = (char*)malloc(1);
-    data->size = 0;
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)data);
-    return data;
+    return ssreq.str();
 }
 
-void parse_response(struct curl_data_st* data, struct ef_return* ret) {
-    parse_response(data, ret, false);
-}
 
-void parse_response(struct curl_data_st* data, struct ef_return* ret, bool print_json) {
+/*
+void parse_response(std::vector<unsigned char> &v_response, struct ef_return* ret) {
+    parse_response(v_response, ret, false);
+}
+*/
+
+void parse_response(std::vector<unsigned char> &v_response, struct ef_return* ret, bool print_json=false) {
     const char* r_msg = NULL;
     const char* r_ip = NULL;
     const char* r_name = NULL;
 
+    std::string sz_response;
+    sz_response.insert(sz_response.begin(), v_response.begin(), v_response.end());
     Json::Value j_result;
     Json::Reader j_reader;
-    bool res = j_reader.parse(data->payload, j_result);
+    bool res = j_reader.parse(sz_response.c_str(), j_result);
     if (!res)
     {
         ret->res = 1;
@@ -149,7 +131,7 @@ void parse_response(struct curl_data_st* data, struct ef_return* ret, bool print
     }
 
     if (j_result.isMember("error"))
-	ret->res = (j_result["error"].asString() == "true") ? 1 : 0;
+    ret->res = (j_result["error"].asString() == "true") ? 1 : 0;
     if (j_result.isMember("msg"))
         r_msg = j_result["msg"].asCString();
     if (j_result.isMember("record"))
@@ -180,69 +162,62 @@ void parse_response(struct curl_data_st* data, struct ef_return* ret, bool print
     }
 }
 
-struct ef_return* ef_unregister(const char* mac, const char* key) {
+
+struct ef_return* ef_runquery(const std::string &postdata, const bool print_json)
+{
+    struct ef_return* ret = (ef_return*)malloc(sizeof(struct ef_return));
+    ret->ip = NULL;
+    ret->name = NULL;
+
+    std::vector<unsigned char> v_response;
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&v_response);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postdata.c_str());
+
+    res = curl_easy_perform(curl);
+    if (res == CURLE_OK)
+    {
+        parse_response(v_response, ret, print_json);
+    }
+    else
+    {
+        ret->res = 2;
+        ret->curl_err_msg = curl_easy_strerror(res);
+    }
+    return ret;
+}
+
+
+struct ef_return* ef_unregister(const char* mac, const char* key)
+{
     return ef_unregister(mac, key, false);
 }
 
-struct ef_return* ef_unregister(const char* mac, const char* key, bool print_json) {
-    struct ef_return* ret = (ef_return*)malloc(sizeof(struct ef_return));
-    ret->ip = NULL;
-    ret->name = NULL;
-    struct curl_data_st* data = prep_query("", mac, key);
-    res = curl_easy_perform(curl);
-    if (res == CURLE_OK) {
-        parse_response(data, ret, print_json);
-    } else {
-        ret->res = 2;
-        ret->curl_err_msg = curl_easy_strerror(res);
-    }
-
-    free(data->req);
-    free(data->payload);
-    free(data);
-    return ret;
+struct ef_return* ef_unregister(const char* mac, const char* key, bool print_json)
+{
+    std::string postdata = prep_postdata("", mac, key);
+    return ef_runquery(postdata, print_json);
 }
 
-struct ef_return* ef_register_new(const char* fqdn, const char* mac, const char* key) {
+
+struct ef_return* ef_register_new(const char* fqdn, const char* mac, const char* key)
+{
     return ef_register_new(fqdn, mac, key, false);
 }
 
-struct ef_return* ef_register_new(const char* fqdn, const char* mac, const char* key, bool print_json) {
-    struct ef_return* ret = (ef_return*)malloc(sizeof(struct ef_return));
-    ret->ip = NULL;
-    ret->name = NULL;
-    struct curl_data_st* data = prep_query(fqdn, mac, key);
-    res = curl_easy_perform(curl);
-    if (res == CURLE_OK) {
-        parse_response(data, ret, print_json);
-    } else {
-        ret->res = 2;
-        ret->curl_err_msg = curl_easy_strerror(res);
-    }
-    free(data->req);
-    free(data->payload);
-    free(data);
-    return ret;
+struct ef_return* ef_register_new(const char* fqdn, const char* mac, const char* key, bool print_json)
+{
+    std::string postdata = prep_postdata(fqdn, mac, key);
+    return ef_runquery(postdata, print_json);
 }
 
-struct ef_return* ef_update(const char* mac, const char* key) {
+
+struct ef_return* ef_update(const char* mac, const char* key)
+{
     return ef_update(mac, key, false);
 }
 
-struct ef_return* ef_update(const char* mac, const char* key, bool print_json) {
-    struct ef_return* ret = (ef_return*)malloc(sizeof(struct ef_return));
-    ret->ip = NULL;
-    ret->name = NULL;
-    struct curl_data_st* data = prep_query(NULL, mac, key);
-    res = curl_easy_perform(curl);
-    if (res == CURLE_OK) {
-        parse_response(data, ret, print_json);
-    } else {
-        ret->res = 2;
-        ret->curl_err_msg = curl_easy_strerror(res);
-    }
-    free(data->req);
-    free(data->payload);
-    free(data);
-    return ret;
+struct ef_return* ef_update(const char* mac, const char* key, bool print_json)
+{
+    std::string postdata = prep_postdata(NULL, mac, key);
+    return ef_runquery(postdata, print_json);
 }
