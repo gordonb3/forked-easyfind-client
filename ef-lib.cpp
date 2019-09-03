@@ -15,32 +15,28 @@
     #define EXCITO_CA "/usr/share/excito/excito-ca.crt"
 #endif
 
-using namespace std;
-
-const char* return_codes[] = {
-    "DBCONNECT", "UPDATE", "SETNAME", NULL,
-    "CHECKNAME", NULL, NULL, NULL, "DISABLE",
-    NULL, "VALIDATE", "CHANGENAME", "GETRECORD"
-};
-
 CURL *curl;
 CURLcode res;
 
-size_t curl_write_cb(char* ptr, size_t size, size_t nmemb, void *userdata) {
+size_t curl_write_cb(char* ptr, size_t size, size_t nmemb, void *userdata)
+{
     size_t realsize = size * nmemb;
     std::vector<unsigned char>* vHTTPResponse = (std::vector<unsigned char>*)userdata;
     vHTTPResponse->insert(vHTTPResponse->end(), (unsigned char*)ptr, (unsigned char*)ptr + realsize);
     return realsize;
 }
 
-void ef_init() {
+void ef_init()
+{
     ef_init(EXCITO_CA);
 }
 
-void ef_init(const char* ca_file) {
+void ef_init(const char* ca_file)
+{
     curl_global_init(CURL_GLOBAL_SSL);
     curl = curl_easy_init();
-    if ( ! curl ) {
+    if (!curl)
+    {
         fprintf(stderr, "Unable to initiate libcurl !");
         exit(1);
     }
@@ -49,25 +45,29 @@ void ef_init(const char* ca_file) {
     sprintf(ua, "libcurl-agent/%s", info->version);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, ua);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
-    if (strcmp(ca_file,"None") == 0) {
+    if (strcmp(ca_file,"None") == 0)
+    {
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
-    } else {
-        curl_easy_setopt(curl, CURLOPT_CAINFO, ca_file);
     }
+    else
+        curl_easy_setopt(curl, CURLOPT_CAINFO, ca_file);
     free(ua);
 }
 
-void ef_cleanup() {
+void ef_cleanup()
+{
     curl_easy_cleanup(curl);
     curl_global_cleanup();
 }
 
-char* error_desc(int err_code) {
+char* error_desc(int err_code)
+{
     return NULL;
 }
 
-char* get_ip() {
+char* get_ip()
+{
     std::vector<unsigned char> v_response;
     curl_easy_setopt(curl, CURLOPT_URL, IP_URL);
     curl_easy_setopt(curl, CURLOPT_HTTPGET, 1);
@@ -82,22 +82,20 @@ char* get_ip() {
         Json::Reader j_reader;
         bool ret = j_reader.parse(sz_response.c_str(), j_result);
         if ((ret) && j_result.isMember("ip_address"))
-        {
             return (char*)j_result["ip_address"].asCString();
-        }
     }
     return NULL;
 }
 
-std::string prep_postdata(const char* fqdn, const char* mac, const char* key) {
+std::string prep_postdata(const char* fqdn, const char* mac, const char* key)
+{
     curl_easy_setopt(curl, CURLOPT_URL, EF_URL);
     char* esc_key = curl_easy_escape(curl, key, 0);
     char* esc_mac = curl_easy_escape(curl, mac, 0);
-    stringstream ssreq;
+    std::stringstream ssreq;
     ssreq << "mac0=" << esc_mac << "&key=" << esc_key;
-    if (fqdn != NULL) {
+    if (fqdn != NULL)
         ssreq << "&newname=" << fqdn << "&oldname=";
-    }
     curl_free(esc_key);
     curl_free(esc_mac);
     return ssreq.str();
@@ -125,9 +123,7 @@ void parse_response(std::vector<unsigned char> &v_response, struct ef_return* re
         ret->res = 1;
         strcpy(ret->err_msg, "json parser error");
         if (print_json)
-        {
             std::cout << "{\"error\":true,\"msg\":\"invalid json data\"}\n";
-        }
     }
 
     if (j_result.isMember("error"))
@@ -148,15 +144,18 @@ void parse_response(std::vector<unsigned char> &v_response, struct ef_return* re
         std::cout << fastWriter.write(j_result) << "\n";
     }
 
-    if (r_msg != NULL) {
+    if (r_msg != NULL)
+    {
         ret->err_msg = (char*)malloc(strlen(r_msg)+1);
         strcpy(ret->err_msg, r_msg);
     }
-    if (r_ip != NULL) {
+    if (r_ip != NULL)
+    {
         ret->ip = (char*)malloc(strlen(r_ip)+1);
         strcpy(ret->ip, r_ip);
     }
-    if (r_name != NULL) {
+    if (r_name != NULL)
+    {
         ret->name = (char*)malloc(strlen(r_name)+1);
         strcpy(ret->name, r_name);
     }
@@ -175,9 +174,7 @@ struct ef_return* ef_runquery(const std::string &postdata, const bool print_json
 
     res = curl_easy_perform(curl);
     if (res == CURLE_OK)
-    {
         parse_response(v_response, ret, print_json);
-    }
     else
     {
         ret->res = 2;
