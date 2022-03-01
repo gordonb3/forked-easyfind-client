@@ -6,7 +6,7 @@ endif
 CFLAGS  +=  -I. -c -Wall
 LDFLAGS +=  -lcurl
 OBJ     = ef.o ef-lib.o
-LIBS	= $(patsubst %.cpp,%.o,$(wildcard jsoncpp/*.cpp))
+LIBS	= $(patsubst %.cpp,%.o,$(wildcard json/*.cpp))
 DEPS    = ef-lib.h
 
 all: ef

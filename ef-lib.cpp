@@ -5,7 +5,7 @@
 #include <malloc.h>
 #include <string.h>
 #include <curl/curl.h>
-#include <jsoncpp/json.h>
+#include <json/json.h>
 
 #include "ef-lib.h"
 
@@ -79,8 +79,10 @@ char* get_ip()
         std::string sz_response;
         sz_response.insert(sz_response.begin(), v_response.begin(), v_response.end());
         Json::Value j_result;
-        Json::Reader j_reader;
-        bool ret = j_reader.parse(sz_response.c_str(), j_result);
+        Json::CharReaderBuilder jBuilder;
+        std::unique_ptr<Json::CharReader> jReader(jBuilder.newCharReader());
+        bool ret = jReader->parse(sz_response.c_str(), sz_response.c_str() + sz_response.size(), &j_result, nullptr);
+
         if ((ret) && j_result.isMember("ip_address"))
             return (char*)j_result["ip_address"].asCString();
     }
@@ -116,8 +118,12 @@ void parse_response(std::vector<unsigned char> &v_response, struct ef_return* re
     std::string sz_response;
     sz_response.insert(sz_response.begin(), v_response.begin(), v_response.end());
     Json::Value j_result;
-    Json::Reader j_reader;
-    bool res = j_reader.parse(sz_response.c_str(), j_result);
+    Json::CharReaderBuilder jBuilder;
+    std::unique_ptr<Json::CharReader> jReader(jBuilder.newCharReader());
+    bool res = jReader->parse(sz_response.c_str(), sz_response.c_str() + sz_response.size(), &j_result, nullptr);
+
+//    Json::Reader j_reader;
+//    bool res = j_reader.parse(sz_response.c_str(), j_result);
     if (!res)
     {
         ret->res = 1;
@@ -138,12 +144,6 @@ void parse_response(std::vector<unsigned char> &v_response, struct ef_return* re
             r_name = j_result["record"]["name"].asCString();
     }
 
-    if (print_json)
-    {
-        Json::FastWriter fastWriter;
-        std::cout << fastWriter.write(j_result) << "\n";
-    }
-
     if (r_msg != NULL)
     {
         ret->err_msg = (char*)malloc(strlen(r_msg)+1);
@@ -158,6 +158,12 @@ void parse_response(std::vector<unsigned char> &v_response, struct ef_return* re
     {
         ret->name = (char*)malloc(strlen(r_name)+1);
         strcpy(ret->name, r_name);
+    }
+
+    if (print_json)
+    {
+//        Json::FastWriter fastWriter;
+        std::cout << Json::writeString(Json::StreamWriterBuilder(), j_result) << "\n";
     }
 }
 
