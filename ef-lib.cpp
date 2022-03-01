@@ -41,9 +41,9 @@ void ef_init(const char* ca_file)
         exit(1);
     }
     curl_version_info_data* info = curl_version_info(CURLVERSION_NOW);
-    char* ua = (char*)malloc(15 + strlen(info->version));
-    sprintf(ua, "libcurl-agent/%s", info->version);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, ua);
+    std::string szUserAgent = "libcurl-agent/";
+    szUserAgent.append(info->version);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, szUserAgent.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
     if (strcmp(ca_file,"None") == 0)
     {
@@ -52,7 +52,6 @@ void ef_init(const char* ca_file)
     }
     else
         curl_easy_setopt(curl, CURLOPT_CAINFO, ca_file);
-    free(ua);
 }
 
 void ef_cleanup()
@@ -66,7 +65,7 @@ char* error_desc(int err_code)
     return NULL;
 }
 
-char* get_ip()
+std::string get_ip()
 {
     std::vector<unsigned char> v_response;
     curl_easy_setopt(curl, CURLOPT_URL, IP_URL);
@@ -84,7 +83,7 @@ char* get_ip()
         bool ret = jReader->parse(sz_response.c_str(), sz_response.c_str() + sz_response.size(), &j_result, nullptr);
 
         if ((ret) && j_result.isMember("ip_address"))
-            return (char*)j_result["ip_address"].asCString();
+            return j_result["ip_address"].asString();
     }
     return NULL;
 }

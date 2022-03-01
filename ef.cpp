@@ -44,12 +44,15 @@
 #define YEL  "\x1B[33m"
 #define RESET "\033[0m"
 
-char* key = NULL;
-char* mac = NULL;
-char* last_name = NULL;
-char* last_ip = NULL;
-char enabled[4] = "no";
 command_array cmd_array;
+
+
+std::string szHardwareKey;
+std::string szMacAddress;
+std::string szLastIP;
+std::string szLastName;
+std::string szEnabled;
+
 
 
 /* State file opening/creation attempt */
@@ -93,41 +96,26 @@ void check_state_perms()
     }
 }
 
-
 /* Reads key value from boot command line */
-void read_cmdline()
+void read_kernel_cmdline()
 {
-    FILE* cmdline_f = fopen("/proc/cmdline", "r");
-    if (cmdline_f == NULL)
+    std::ifstream cmdline ("/proc/cmdline");
+    if ( cmdline.is_open() )
     {
-        fprintf(stderr, RED "ERROR" RESET ": Unable to open /proc/cmdline file !\n");
-        exit(1);
+        std::string line;
+        getline(cmdline,line);
+        cmdline.close();
+        size_t pos = line.find("key=");
+        if (pos == std::string::npos)
+            return;
+        pos += 4;
+        line.append(" ");
+        size_t end = line.find(" ", pos);
+        szHardwareKey = line.substr(pos, end - pos);
     }
-    char buf[MAX_LINE_LEN];
-    char* res = fgets(buf, MAX_LINE_LEN, cmdline_f);
-    fclose(cmdline_f);
-
-    if (res == NULL)
+    else
     {
-        fprintf(stderr, RED "ERROR" RESET ": Unable to read /proc/cmdline file !\n");
-        exit(1);
-    }
-
-    res[strlen(res)-1] = '\0';
-    const char* delim = " ";
-    char* token = strtok(res, delim);
-    while (token != NULL)
-    {
-        if (strncmp(token, "key=", 4) == 0)
-            break;
-        token = strtok(NULL, delim);
-    }
-
-    if (token != NULL)
-    {
-        key = (char*)malloc(strlen(token)-3);
-        strcpy(key, token+4);
-        key[strlen(token)-4] = '\0';
+        fprintf(stderr, YEL "WARNING" RESET ": Unable to open /proc/cmdline file !\n");
     }
 }
 
@@ -166,92 +154,72 @@ void read_flash()
     {
         if (strncmp(pos, "key=", 4) == 0)
         {
-            key = (char*)malloc(l - 3);
-            strcpy(key, pos + 4);
+            szHardwareKey.append(pos + 4, l - 3);
             break;
         }
-        pos += l+1;
+        pos += l + 1;
         l = strlen(pos);
     }
 }
 
 
 /* Try to load last known state */
-void read_state(int r)
+void read_statefile(bool verbose)
 {
-    FILE* st_file = fopen(cmd_array.st_file.c_str(), "r");
-    if (st_file != NULL)
+    std::ifstream statefile (cmd_array.st_file.c_str());
+    if ( statefile.is_open() )
     {
-        if (r == 0)
+        if (verbose)
             printf("\nReading state file ... ");
-        fflush(stdout);
-        char* line = NULL;
-        size_t bufsize=MAX_LINE_LEN;
-        ssize_t len;
-        while ((len = getline(&line, &bufsize, st_file)) != -1)
+        std::string szKey,szValue;
+        bool isKey = true;
+        std::string line;
+        unsigned int i;
+        while ( getline(statefile,line) )
         {
-            ssize_t c;
-            for (c = 0 ; c < len ; c++)
+            if ( (line[0] == '#') || (line[0] == ';') )
+                continue;
+            isKey = true;
+            szKey = "";
+            szValue = "";
+            for (i = 0; i < line.length(); i++)
             {
-                if ((line[c] == '#') || (line[c] == ';') || (line[c] == '\r') || (line[c] == '\n'))
+                if (line[i] == '\r')
+                    continue;
+                if (line[i] == ' ')
+                    continue;
+                if (line[i] == '=')
                 {
-                    len = c;
-                    break;
+                    isKey = false;
+                    continue;
                 }
-                else if (line[c] > 0x40)
-                    line[c] = (line[c] | 0x60);
+                if (isKey)
+                    szKey.insert(szKey.end(),1,line[i]);
+                else
+                    szValue.insert(szValue.end(),1,line[i]);
             }
-            char strtokbuf[MAX_LINE_LEN];
-            strncpy(strtokbuf,line,len);
-            strtokbuf[len]=' ';
-            strtokbuf[len+1]='Z';
-            if (len > 0)
+            if ( ! isKey )
             {
-                char* varname = strtok(strtokbuf," \t=\r\n");
-                char* value = strtok(NULL," \t=\r\n");
-                int sz = strlen(value);
-                if (sz > 0 && value[0] != 'Z')
-                {
-                    if (strcmp(varname,"name") == 0)
-                    {
-                        last_name = (char*)malloc(sz+1);
-                        strncpy(last_name,value, sz);
-                        last_name[sz] = '\0';
-                    }
-                    else if (strcmp(varname,"ip") == 0)
-                    {
-                        last_ip = (char*)malloc(sz+1);
-                        strncpy(last_ip,value, sz);
-                        last_ip[sz] = '\0';
-                    }
-                    else if (strcmp(varname,"enable") == 0)
-                    {
-                            if (sz < 4)
-                            strcpy(enabled,value);
-                        else
-                            strcpy(enabled,"no");
-                    }
-                }
+                if (szKey == "ip")
+                    szLastIP = szValue;
+                if (szKey == "name")
+                    szLastName = szValue;
+                if (szKey == "enable")
+                    szEnabled = szValue;
             }
         }
-        fclose(st_file);
-        if (line != NULL)
-            free(line);
-        if ((last_name == NULL) || (last_ip == NULL) || (strcmp(enabled,"yes") != 0))
+        statefile.close();
+        if ( szLastName.empty() || szLastIP.empty() || (szEnabled != "yes") )
         {
-            if (last_name != NULL)
-                free(last_name);
-            if (last_ip != NULL)
-                free(last_ip);
-            last_name = NULL;
-            last_ip = NULL;
-            if (r == 0)
+            szLastName = "";
+            szLastIP = "";
+            if (verbose)
                 printf(RED "KO" RESET "\n");
         }
-        else if (r == 0)
+        else if (verbose)
             printf(GRN "OK" RESET "\n");
     }
-    else if (r == 0)
+    else if (verbose)
         printf("\n");
 }
 
@@ -266,7 +234,7 @@ char* write_state()
     if (st_file == NULL)
         return strerror(errno);
 
-    fprintf(st_file, "enable = %s\nip = %s\nname = %s\n", enabled, last_ip, last_name);
+    fprintf(st_file, "enable = %s\nip = %s\nname = %s\n", szEnabled.c_str(), szLastIP.c_str(), szLastName.c_str());
     fclose(st_file);
 #if defined (USER)
     if (state_file_ok == 1)
@@ -299,13 +267,11 @@ char* write_state()
 /* Read MAC address from sysfs */
 void read_mac()
 {
-    FILE* ad_file = fopen(WAN_MAC_FILE, "r");
-    if (ad_file != NULL)
+    std::ifstream cmdline (WAN_MAC_FILE);
+    if ( cmdline.is_open() )
     {
-        mac = (char*)malloc(18);
-        if (fscanf(ad_file, "%17s", mac) == 1)
-            mac[17] = '\0';
-        fclose(ad_file);
+        getline(cmdline,szMacAddress);
+        cmdline.close();
     }
     else
     {
@@ -314,10 +280,6 @@ void read_mac()
     }
 }
 
-void usage()
-{
-    printf("usage: ef [-d|<name>.<domain>]\n");
-}
 
 /* Test domain name for FQDN compliancy */
 int fqdn_test(const char *domain)
@@ -348,17 +310,19 @@ int ef(int argc, char** argv)
         fprintf(stderr, "easyfind daemon is running; stop it before running the `ef` command\n");
         exit(1);
     }
-    else if (cmd_array.action == "disable")
+
+    struct ef_return* ret;
+    if (cmd_array.ca_file.empty())
+        ef_init();
+    else
+        ef_init(cmd_array.ca_file.c_str());
+
+    if (cmd_array.action == "disable")
     {
-        read_state(0);
+        read_statefile(true);
         printf("Unregistering easyfind ... ");
         fflush(stdout);
-        struct ef_return* ret;
-        if (cmd_array.ca_file.empty())
-            ef_init();
-        else
-            ef_init(cmd_array.ca_file.c_str());
-        ret = ef_unregister(mac, key);
+        ret = ef_unregister(szMacAddress.c_str(), szHardwareKey.c_str());
         if (ret->res != 0)
         {
             printf(RED "KO" RESET "\n");
@@ -367,7 +331,7 @@ int ef(int argc, char** argv)
         else
         {
             printf(GRN "OK" RESET "\n");
-            if (last_name != NULL)
+            if (!szLastName.empty())
             {
                 printf("Removing state file ... ");
                 if (unlink(cmd_array.st_file.c_str()) == -1)
@@ -384,15 +348,10 @@ int ef(int argc, char** argv)
             else
                 printf("\nEasyfind succesfully unconfigured.\n\n");
         }
-
-        if (ret->err_msg != NULL)
-            free(ret->err_msg);
-        free(ret);
-        ef_cleanup();
     }
     else if (cmd_array.action == "setname")
     {
-        read_state(0);
+        read_statefile(true);
         int r = fqdn_test(cmd_array.ef_name.c_str());
         if (r != 0)
         {
@@ -408,16 +367,14 @@ int ef(int argc, char** argv)
             }
         }
 
-        if ((last_name == NULL) || (strcmp(last_name, cmd_array.ef_name.c_str()) != 0))
+        if (szLastName.empty() || (szLastName != cmd_array.ef_name) )
         {
-            if (last_name == NULL)
+            if (szLastName.empty())
                 printf("Registering new record '%s'... ", cmd_array.ef_name.c_str());
             else
-                printf("Replacing record '%s' with '%s'... ", last_name, cmd_array.ef_name.c_str());
+                printf("Replacing record '%s' with '%s'... ", szLastName.c_str() , cmd_array.ef_name.c_str());
             fflush(stdout);
-            struct ef_return* ret;
-            ef_init();
-            ret = ef_register_new(cmd_array.ef_name.c_str(), mac, key);
+            ret = ef_register_new(cmd_array.ef_name.c_str(), szMacAddress.c_str(), szHardwareKey.c_str());
             if (ret->res != 0)
             {
                 printf(RED "KO" RESET "\n");
@@ -426,15 +383,11 @@ int ef(int argc, char** argv)
             else
             {
                 printf(GRN "OK" RESET "\n");
-                if (last_name != NULL)
-                    free(last_name);
-                if (last_ip != NULL)
-                    free(last_ip);
-                last_name = ret->name;
-                last_ip = ret->ip;
+                szLastName = ret->name;
+                szLastIP = ret->ip;
                 printf("Writing state file ... ");
                 fflush(stdout);
-                strcpy(enabled,"yes");
+                szEnabled = "yes";
                 char* res_w = write_state();
                 if (res_w != NULL)
                 {
@@ -449,14 +402,27 @@ int ef(int argc, char** argv)
                 free(ret->name);
                 free(ret->ip);
             }
-            if (ret->res == 1)
-                free(ret->err_msg);
-            free(ret);
-            ef_cleanup();
         }
         else
             printf("\nThis system has already registered record '%s';\nRun easyfind service to update the record.\n\n", cmd_array.ef_name.c_str());
     }
+    else if (cmd_array.action == "getname")
+    {
+        ret = ef_update(szMacAddress.c_str(), szHardwareKey.c_str());
+        if (ret->res == 0)
+        {
+            szLastName = ret->name;
+            printf("%s\n",szLastName.c_str());
+            free(ret->name);
+            free(ret->ip);
+        }
+    }
+
+    if (ret->res == 1)
+        free(ret->err_msg);
+    free(ret);
+    ef_cleanup();
+
     return 0;
 }
 
@@ -465,16 +431,16 @@ int running = 1;
 
 void check_and_update()
 {
-    char* ip = get_ip();
-    if (ip == NULL)
+    std::string szCurrentIP = get_ip();
+    if (szCurrentIP.empty())
     {
         syslog(LOG_ERR, "Unable to get external ip from easyfind !");
         return;
     }
-    else if ((last_ip == NULL) || (strcmp(ip, last_ip) != 0))
+    else if (szLastIP.empty() || (szCurrentIP != szLastIP))
     {
-        syslog(LOG_INFO, "new IP detected (%s); updating easyfind...", ip);
-        struct ef_return* ret = ef_update(mac, key);
+        syslog(LOG_INFO, "new IP detected (%s); updating easyfind...", szCurrentIP.c_str());
+        struct ef_return* ret = ef_update(szMacAddress.c_str(), szHardwareKey.c_str());
         if (ret->res != 0)
         {
             syslog(LOG_ERR, "Error while trying to update easyfind: %s", (ret->res == 1) ? ret->err_msg : ret->curl_err_msg);
@@ -482,14 +448,10 @@ void check_and_update()
         }
         else
         {
-            if ((last_name == NULL) || (strcmp(last_name, ret->name) == 0))
+            if (szLastName.empty() || (szLastName != ret->name))
             {
-                if (last_name != NULL)
-                    free(last_name);
-                if (last_ip != NULL)
-                    free(last_ip);
-                last_name = ret->name;
-                last_ip = ret->ip;
+                szLastName = ret->name;
+                szLastIP = ret->ip;
                 char* res_w = write_state();
                 if (res_w != NULL)
                 {
@@ -501,7 +463,7 @@ void check_and_update()
             }
             else
             {
-                syslog(LOG_ERR, "Easyfind reported name '%s' whereas '%s' is configured ... cannot continue", ret->name, last_name);
+                syslog(LOG_ERR, "Easyfind reported name '%s' whereas '%s' is configured ... cannot continue", ret->name, szLastName.c_str());
                 free(ret->name);
                 free(ret->ip);
                 running = 0;
@@ -512,7 +474,6 @@ void check_and_update()
             free(ret->err_msg);
         free(ret);
     }
-    free(ip);
 }
 
 
@@ -526,9 +487,9 @@ void handle_term(int signum)
 /* Main daemonic function */
 int efd(int argc, char** argv)
 {
-    read_state(1);
+    read_statefile(false);
 
-    if ((last_name == NULL) || (last_ip == NULL) || (strcmp(enabled,"yes") != 0))
+    if (szLastName.empty() || szLastIP.empty() || (szEnabled != "yes"))
     {
         fprintf(stderr, "Unable to read data from state file ; Configure with `ef` before running this daemon.\n");
         exit(1);
@@ -609,8 +570,6 @@ int efd(int argc, char** argv)
             r = sleep(r);
     }
 
-    free(last_name);
-    free(last_ip);
     ef_cleanup();
     unlink(PID_FILE);
     syslog(LOG_INFO, "Easyfind daemon stopped");
@@ -621,16 +580,16 @@ int efd(int argc, char** argv)
 /* Json displaying function */
 int ef_json()
 {
-    read_state(1);
-    if ((last_name != NULL) && (strcmp(last_name, cmd_array.ef_name.c_str()) == 0))  // manual refresh
+    read_statefile(false);
+    if (!szLastName.empty() && (szLastName == cmd_array.ef_name))  // manual refresh
         cmd_array.action = "getname";
     else if ((cmd_array.action != "getname") && (access(PID_FILE, F_OK) != -1))       // efd will stop itself after name is changed
         fprintf(stderr, YEL "WARNING" RESET ": easyfind daemon will be stopped.\n");
 
-    if ((last_name == NULL) && (cmd_array.action != "setname") && (cmd_array.action != "getname"))
+    if (szLastName.empty() && (cmd_array.action != "setname") && (cmd_array.action != "getname"))
         std::cout << "{\"error\":\"true\",\"msg\":\"Easyfind not enabled.\"}\n";
-    else if ((cmd_array.action == "getname") && (last_name != NULL) && (last_ip != NULL))
-        std::cout << "{\"error\":\"false\",\"ip\":\"" << last_ip << "\",\"name\":\"" << last_name << "\"}\n";
+    else if ((cmd_array.action == "getname") && !szLastName.empty() && !szLastIP.empty())
+        std::cout << "{\"error\":\"false\",\"ip\":\"" << szLastIP << "\",\"name\":\"" << szLastName << "\"}\n";
     else
     {
         struct ef_return* ret;
@@ -641,7 +600,7 @@ int ef_json()
 
         if (cmd_array.action == "disable")
         {
-            ret = ef_unregister(mac, key, true);
+            ret = ef_unregister(szMacAddress.c_str(), szHardwareKey.c_str(), true);
             if (ret->res == 0)
             {
                 if (unlink(cmd_array.st_file.c_str()) == -1)
@@ -652,19 +611,21 @@ int ef_json()
         {
             if (cmd_array.action == "setname")
             {
-                ret = ef_register_new(cmd_array.ef_name.c_str(), mac, key, true);
+                ret = ef_register_new(cmd_array.ef_name.c_str(), szMacAddress.c_str(), szHardwareKey.c_str(), true);
             }
             else
             {
-                ret = ef_update(mac, key, true);
+                ret = ef_update(szMacAddress.c_str(), szHardwareKey.c_str(), true);
             }
             if (ret->res == 0)
             {
-                if (last_name != NULL) free(last_name);
-                if (last_ip != NULL) free(last_ip);
-                last_name = ret->name;
-                last_ip = ret->ip;
-                strcpy(enabled,"yes");
+                szLastName = ret->name;
+                szLastIP = ret->ip;
+                szEnabled = "yes";
+                if (ret->name != NULL)
+                    free(ret->name);
+                if (ret->ip != NULL)
+                    free(ret->ip);
                 char* res_w = write_state();
                 if (res_w != NULL)
                 {
@@ -673,15 +634,13 @@ int ef_json()
             }
         }
         if (ret->res != 0)
-            std::cout << "{\"error\":\"true\",\"msg\":\""<< ret->curl_err_msg << ".\"\n";
-
-        if (ret->err_msg != NULL)
+            printf("{\"error\":\"true\",\"msg\":\"%s.\"\n", (ret->res == 1) ? ret->err_msg : ret->curl_err_msg);
+            
+        if (ret->res == 1)
             free(ret->err_msg);
         free(ret);
         ef_cleanup();
     }
-    if (last_name != NULL) free(last_name);
-    if (last_ip != NULL) free(last_ip);
     return 0;
 }
 
@@ -849,10 +808,10 @@ int main(int argc, char** argv)
 
     parse_parms(argc,argv);
     check_state_perms();
-    read_cmdline();
-    if (key == NULL)
+    read_kernel_cmdline();
+    if (szHardwareKey.empty())
         read_flash();
-    if (key == NULL)
+    if (szHardwareKey.empty())
     {
         fprintf(stderr, RED "ERROR" RESET ": Unable to read key from either boot command line or flash; are you running on a B2/B3 ?\n");
         exit(1);

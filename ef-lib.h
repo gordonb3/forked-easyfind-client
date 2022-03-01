@@ -16,4 +16,5 @@ struct ef_return* ef_unregister(const char* mac, const char* key);
 struct ef_return* ef_unregister(const char* mac, const char* key, bool print_json);
 struct ef_return* ef_update(const char* mac, const char* key);
 struct ef_return* ef_update(const char* mac, const char* key, bool print_json);
-char* get_ip();
+
+std::string get_ip();
